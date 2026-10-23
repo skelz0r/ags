@@ -1,0 +1,162 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+repo=$(cd "$(dirname "$0")/../../../.." && pwd)
+qa="$repo/tmp/qa"
+sandbox="$qa/sandbox"
+evidence="$qa/evidence"
+socket="ags-qa-$(printf '%s' "$repo" | shasum | cut -c1-8)"
+
+usage() {
+  cat <<EOF
+usage: sandbox <command>
+  up                 build this worktree's ags, seed an isolated AGS_HOME, start its daemon
+  tui <name> [keys]  open the TUI in a detached tmux, send keys, save the screen as evidence
+  down               stop this sandbox's daemon and tmux, delete the sandbox, keep evidence
+  path               print the sandbox directory
+  fingerprint        print HEAD and a hash of the uncommitted sources the binary is built from
+EOF
+}
+
+machine_config() {
+  cat <<'EOF'
+default_command: record
+preprompt: QA run started by the verify-ags sandbox.
+precheck_timeout: 5s
+commands:
+  record:
+    argv: ["sh", "-c", "cat; echo done"]
+    timeout: 30s
+  failing:
+    argv: ["sh", "-c", "echo broken >&2; exit 3"]
+    timeout: 30s
+  slow:
+    argv: ["sleep", "20"]
+    stdin: none
+    timeout: 1m
+notifications:
+  on: [failed, missed, precheck_error, invalid, unapproved]
+  channels: []
+EOF
+}
+
+project_file() {
+  cat <<'EOF'
+version: 1
+timezone: Europe/Paris
+jobs:
+  every-minute:
+    schedule: "* * * * *"
+    prompt: Say hello from the scheduler.
+  audit:
+    schedule: "30 9 * * 1"
+    prompt: Audit the dependencies.
+    precheck: "true"
+  broken:
+    schedule: "0 14 * * *"
+    prompt: This one fails.
+    command: failing
+  nothing-to-do:
+    schedule: "0 8 * * *"
+    prompt: Skipped by its precheck.
+    precheck: "echo no new commit; exit 1"
+EOF
+}
+
+fingerprint() {
+  cd "$repo"
+  git rev-parse HEAD
+  { git diff HEAD -- cmd internal skills skills.go go.mod go.sum
+    git ls-files --others --exclude-standard -- cmd internal skills | xargs shasum 2>/dev/null
+  } | shasum | cut -c1-12
+}
+
+daemon_pid() {
+  [ -f "$sandbox/daemon.pid" ] || return 1
+  local pid
+  pid=$(cat "$sandbox/daemon.pid")
+  [ "$(ps -o command= -p "$pid" 2>/dev/null)" = "$sandbox/bin/ags daemon" ] || return 1
+  echo "$pid"
+}
+
+stop_daemon() {
+  local pid
+  if pid=$(daemon_pid); then
+    kill "$pid"
+    for _ in $(seq 50); do
+      kill -0 "$pid" 2>/dev/null || break
+      sleep 0.1
+    done
+  fi
+  rm -f "$sandbox/daemon.pid"
+}
+
+up() {
+  mkdir -p "$sandbox/bin" "$sandbox/home" "$sandbox/agshome/config" "$evidence"
+  (cd "$repo" && go build -o "$sandbox/bin/ags" ./cmd/ags)
+  fingerprint | paste -sd' ' - >"$sandbox/bin/ags.source"
+  cat >"$sandbox/ags" <<EOF
+#!/bin/sh
+exec env AGS_HOME="$sandbox/agshome" HOME="$sandbox/home" "$sandbox/bin/ags" "\$@"
+EOF
+  chmod +x "$sandbox/ags"
+  local ags="$sandbox/ags"
+  if [ ! -d "$sandbox/proj" ]; then
+    machine_config >"$sandbox/agshome/config/config.yml"
+    mkdir -p "$sandbox/proj"
+    git -C "$sandbox/proj" init -q
+    printf '.ags.local.yml\n' >"$sandbox/proj/.gitignore"
+    project_file >"$sandbox/proj/.ags.yml"
+    "$ags" install >/dev/null
+    "$ags" add "$sandbox/proj" --name agsqa --approve >/dev/null
+    "$ags" run agsqa/audit >/dev/null 2>&1
+    "$ags" run agsqa/broken >/dev/null 2>&1 || true
+    "$ags" run agsqa/nothing-to-do >/dev/null 2>&1 || true
+  fi
+  stop_daemon
+  "$ags" daemon >>"$sandbox/daemon.out" 2>&1 </dev/null &
+  echo $! >"$sandbox/daemon.pid"
+  disown
+  for _ in $(seq 50); do
+    if "$ags" doctor >/dev/null 2>&1; then break; fi
+    sleep 0.1
+  done
+  echo "sandbox: $sandbox"
+  echo "ags:     $ags  (wrapper: AGS_HOME and HOME set to the sandbox)"
+  echo "daemon:  pid $(cat "$sandbox/daemon.pid"), log $sandbox/agshome/state/daemon.log"
+  echo "project: agsqa at $sandbox/proj"
+}
+
+tui() {
+  local name=${1:?usage: sandbox tui <name> [keys...]}
+  shift
+  [ -x "$sandbox/ags" ] || { echo "no sandbox: run sandbox up" >&2; exit 1; }
+  local dir="${QA_EVIDENCE:-$evidence/tui}"
+  mkdir -p "$dir"
+  tmux -L "$socket" kill-server 2>/dev/null || true
+  tmux -L "$socket" -f /dev/null new-session -d -x 160 -y 32 "$sandbox/ags"
+  sleep 1
+  for key in "$@"; do
+    tmux -L "$socket" send-keys "$key"
+    sleep 0.4
+  done
+  tmux -L "$socket" capture-pane -p >"$dir/$name.txt"
+  tmux -L "$socket" kill-server 2>/dev/null || true
+  echo "$dir/$name.txt"
+}
+
+down() {
+  stop_daemon
+  tmux -L "$socket" kill-server 2>/dev/null || true
+  rm -rf "$sandbox"
+  echo "sandbox removed, evidence kept in $evidence"
+}
+
+case "${1:-}" in
+  up) up ;;
+  tui) shift; tui "$@" ;;
+  down) down ;;
+  path) echo "$sandbox" ;;
+  fingerprint) fingerprint | paste -sd' ' - ;;
+  *) usage; exit 2 ;;
+esac

@@ -1,0 +1,103 @@
+#!/usr/bin/env bash
+set -uo pipefail
+
+repo=$(cd "$(dirname "$0")/../../../.." && pwd)
+sandbox="$repo/tmp/qa/sandbox"
+up=".claude/skills/verify-ags/scripts/sandbox up"
+safe_programs="/bin/sh /bin/bash /bin/echo /bin/cat /bin/sleep /usr/bin/true /usr/bin/false"
+real_config="$HOME/.config/ags"
+real_state="$HOME/.local/state/ags"
+real_plist="$HOME/Library/LaunchAgents/dev.ags.plist"
+failed=0
+
+ok() { echo "ok   $1: $2"; }
+fail() {
+  echo "FAIL $1: $2 -> fix: $3"
+  failed=$((failed + 1))
+}
+
+if [ ! -x "$sandbox/ags" ]; then
+  fail sandbox "no sandbox in $sandbox" "$up"
+  echo "1 check(s) failed"
+  exit 1
+fi
+ok sandbox "$sandbox"
+
+current=$("$(dirname "$0")/sandbox" fingerprint)
+built=$(cat "$sandbox/bin/ags.source" 2>/dev/null)
+if [ "$built" = "$current" ]; then
+  ok build "$sandbox/bin/ags built from this worktree ($current)"
+else
+  fail build "binary built from '${built:-unknown}', worktree is now '$current'" "$up"
+fi
+
+wrapper_home=$(sed -n 's/.*AGS_HOME="\([^"]*\)".*/\1/p' "$sandbox/ags")
+if [ "$wrapper_home" = "$sandbox/agshome" ]; then
+  ok isolation "wrapper sets AGS_HOME=$wrapper_home"
+else
+  fail isolation "wrapper AGS_HOME is '${wrapper_home}', not $sandbox/agshome" "$up"
+fi
+
+pid=$(cat "$sandbox/daemon.pid" 2>/dev/null)
+command=$(ps -o command= -p "${pid:-0}" 2>/dev/null)
+state_pid=$(jq -r '.daemon.pid // 0' "$sandbox/agshome/state/state.json" 2>/dev/null)
+if [ "$command" != "$sandbox/bin/ags daemon" ]; then
+  fail daemon "pid ${pid:-none} is '${command:-not running}', not this sandbox's daemon" "$up"
+elif [ "$state_pid" != "$pid" ]; then
+  fail daemon "sandbox state names pid $state_pid, sandbox started $pid" "$up"
+else
+  ok daemon "pid $pid runs $command"
+fi
+
+report=$("$sandbox/ags" doctor --json 2>/dev/null)
+while IFS=$'\t' read -r name pass detail; do
+  [ -n "$name" ] || continue
+  case "$name" in
+    command\ *)
+      if [ "$pass" != true ]; then
+        fail "ags $name" "$detail" "edit $sandbox/agshome/config/config.yml"
+      elif [[ " $safe_programs " != *" $detail "* ]]; then
+        fail "outbound $name" "runs $detail, a QA may only run $safe_programs" "point it at sh/echo/sleep in $sandbox/agshome/config/config.yml"
+      else
+        ok "outbound $name" "$detail"
+      fi
+      ;;
+    *)
+      if [ "$pass" = true ]; then ok "ags $name" "$detail"; else fail "ags $name" "$detail" "$sandbox/ags doctor; $up"; fi
+      ;;
+  esac
+done < <(printf '%s' "$report" | jq -r '(.data // .error.data // [])[] | [.name, (.ok|tostring), .detail] | @tsv' 2>/dev/null)
+[ -n "$report" ] || fail "ags doctor" "no output from $sandbox/ags doctor --json" "$up"
+
+if awk '/^notifications:/ { n = 1; next } /^[^ ]/ { n = 0 } n && /^  channels: *\[\] *$/ { found = 1 } END { exit !found }' "$sandbox/agshome/config/config.yml"; then
+  ok "outbound notifications" "channels: [] in the sandbox machine config"
+else
+  fail "outbound notifications" "the sandbox machine config may send macOS notifications" "set notifications.channels: [] in $sandbox/agshome/config/config.yml"
+fi
+
+leaks=$(grep -rlF "$repo/tmp/qa" "$real_config" "$real_plist" 2>/dev/null | tr '\n' ' ')
+real_runs=$(grep -c '"project":"agsqa"' "$real_state/history.jsonl" 2>/dev/null)
+loaded=$(launchctl print "gui/$(id -u)/dev.ags" 2>/dev/null | awk '/^\tprogram = / { print $3 }')
+if [ -n "$leaks" ]; then
+  fail "real install" "mentions the sandbox: $leaks" "remove the sandbox entries by hand, then run the QA through $sandbox/ags only"
+elif [ "${real_runs:-0}" -gt 0 ]; then
+  fail "real install" "$real_runs QA run(s) in $real_state/history.jsonl" "a command ran without AGS_HOME: use $sandbox/ags only"
+elif [[ "$loaded" == "$repo/tmp/qa"* ]]; then
+  fail "real install" "the loaded LaunchAgent dev.ags runs $loaded" "go install ./cmd/ags && ags install from the main checkout"
+else
+  ok "real install" "$real_config, $real_plist and the loaded dev.ags (${loaded:-none}) do not reference the sandbox"
+fi
+
+hazards=$(cd "$repo" && git grep -lE 'cli\.Main\(|notify\.MacOS|paths\.FromEnv\(' -- '*_test.go' | tr '\n' ' ')
+if [ -n "$hazards" ]; then
+  fail "tests isolation" "$hazards reach the real HOME or real notifications" "build the test world with agstest.New(t)"
+else
+  ok "tests isolation" "every test goes through agstest (temporary HOME and AGS_HOME, recorded notifications)"
+fi
+
+if command -v tmux >/dev/null; then ok tmux "$(command -v tmux) for TUI captures"; else fail tmux "missing, needed for TUI captures" "brew install tmux"; fi
+
+if [ "$failed" -gt 0 ]; then
+  echo "$failed check(s) failed"
+  exit 1
+fi
