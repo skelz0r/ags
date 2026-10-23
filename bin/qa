@@ -1,0 +1,151 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+  cat <<'EOF'
+usage: bin/qa [<commit> | <base>..<head>] [--all]
+
+Runs the Go test packages that reach a package the diff touches
+(default diff: merge-base with origin/main to the working tree; a single
+commit means that commit's own diff). Every test goes through
+internal/agstest: temporary HOME and AGS_HOME, recorded notifications.
+
+QA_SCREENSHOTS=1 also captures the CLI and TUI of this build in the
+verify-ags sandbox. Evidence goes to tmp/qa/evidence/<stamp>/.
+EOF
+}
+
+repo=$(cd "$(dirname "$0")/.." && pwd)
+cd "$repo"
+module=$(go list -m)
+sandbox_script=.claude/skills/verify-ags/scripts/sandbox
+
+all=false
+range=""
+for arg in "$@"; do
+  case "$arg" in
+    --all) all=true ;;
+    -h | --help) usage; exit 0 ;;
+    *) range=$arg ;;
+  esac
+done
+
+if [ -z "$range" ]; then
+  base=$(git merge-base origin/main HEAD)
+  diff_args=("$base")
+  changed=$( { git diff --name-only "$base"; git ls-files --others --exclude-standard; } | sort -u)
+  label="$(git rev-parse --short "$base")..working tree"
+elif [[ "$range" == *..* ]]; then
+  diff_args=("$range")
+  changed=$(git diff --name-only "$range")
+  label=$range
+else
+  diff_args=("$range^" "$range")
+  changed=$(git diff --name-only "$range^" "$range")
+  label="$(git rev-parse --short "$range") $(git log -1 --format=%s "$range")"
+fi
+
+stamp=$(date +%Y%m%dT%H%M%S)-$(git rev-parse --short HEAD)
+evidence="$repo/tmp/qa/evidence/$stamp"
+mkdir -p "$evidence"
+printf '%s\n' "$changed" >"$evidence/changed-files.txt"
+
+echo "diff: $label ($(printf '%s\n' "$changed" | grep -c . || true) file(s))"
+
+package_files=$(go list -f '{{$d := .Dir}}{{range .GoFiles}}{{$d}}/{{.}} {{$.ImportPath}}
+{{end}}{{range .TestGoFiles}}{{$d}}/{{.}} {{$.ImportPath}}
+{{end}}{{range .XTestGoFiles}}{{$d}}/{{.}} {{$.ImportPath}}
+{{end}}{{range .EmbedFiles}}{{$d}}/{{.}} {{$.ImportPath}}
+{{end}}' ./...)
+
+touched=""
+whole_module=false
+while IFS= read -r file; do
+  [ -n "$file" ] || continue
+  case "$file" in
+    go.mod | go.sum) whole_module=true ;;
+  esac
+  pkg=$(printf '%s\n' "$package_files" | awk -v f="$repo/$file" '$1 == f { print $2; exit }')
+  [ -n "$pkg" ] && touched="$touched $pkg"
+done <<<"$changed"
+touched=$(printf '%s\n' $touched | sort -u | grep . || true)
+$whole_module && touched=$(go list ./...)
+
+test_packages=$(go list -f '{{if or .TestGoFiles .XTestGoFiles}}{{.ImportPath}}{{end}}' ./...)
+selected=""
+for pkg in $test_packages; do
+  if $all; then
+    selected="$selected $pkg"
+    echo "  run ${pkg#$module/}: --all"
+    continue
+  fi
+  if $whole_module; then
+    selected="$selected $pkg"
+    echo "  run ${pkg#$module/}: go.mod or go.sum changed"
+    continue
+  fi
+  deps=$(go list -test -deps -f '{{.ImportPath}}' "$pkg" | sed 's/ \[.*//' | sort -u)
+  reached=$(comm -12 <(printf '%s\n' "$deps") <(printf '%s\n' "$touched") | sed "s#^$module/##; s#^$module\$#(root)#" | paste -sd, - | awk -F, '{ if (NF > 3) print $1","$2","$3" +"NF-3; else print }' || true)
+  if [ -n "$reached" ]; then
+    selected="$selected $pkg"
+    echo "  run ${pkg#$module/}: reaches $reached"
+  fi
+done
+
+uncovered=""
+for pkg in $touched; do
+  reached_by_test=false
+  for test in $selected; do
+    if go list -test -deps -f '{{.ImportPath}}' "$test" | sed 's/ \[.*//' | grep -qx "$pkg"; then
+      reached_by_test=true
+      break
+    fi
+  done
+  $reached_by_test || uncovered="$uncovered ${pkg#$module/}"
+done
+[ -n "$uncovered" ] && echo "  no test reaches:$uncovered (prove it in the sandbox: QA_SCREENSHOTS=1, or verify-ags)"
+
+symbols=$(git diff -U0 "${diff_args[@]}" -- '*.go' ':!*_test.go' \
+  | sed -nE 's/^[-+@].*func (\([^)]*\) )?([A-Z][A-Za-z0-9_]{5,})\(.*/\2/p' | sort -u || true)
+for symbol in $symbols; do
+  mentions=$(git grep -nwF "$symbol" -- '*_test.go' | cut -d: -f1,2 | head -3 | paste -sd' ' - || true)
+  [ -n "$mentions" ] && echo "  tests naming $symbol: $mentions"
+done
+
+if [ -z "$selected" ]; then
+  if [ -z "$touched" ]; then
+    echo "  no Go package touched: fallback go test ./..."
+    selected=$test_packages
+  else
+    echo "no test package reaches the touched code"
+  fi
+fi
+
+status=0
+if [ -n "$selected" ]; then
+  go test -count=1 -v $selected >"$evidence/go-test.log" 2>&1 || status=$?
+  grep -E '^(ok|FAIL|---( FAIL|.*panic))' "$evidence/go-test.log" | sed "s#$module/##" || true
+  echo "  $(grep -c '^--- PASS' "$evidence/go-test.log" || true) passed, $(grep -c '^--- FAIL' "$evidence/go-test.log" || true) failed"
+fi
+
+if [ "${QA_SCREENSHOTS:-}" = 1 ]; then
+  started=false
+  sandbox=$("$sandbox_script" path)
+  if [ ! -f "$sandbox/daemon.pid" ]; then
+    "$sandbox_script" up >"$evidence/sandbox-up.txt" 2>&1
+    started=true
+  fi
+  for cmd in doctor projects jobs runs; do
+    "$sandbox/ags" "$cmd" >"$evidence/cli-$cmd.txt" 2>&1 || true
+  done
+  export QA_EVIDENCE=$evidence
+  "$sandbox_script" tui tui-projects >/dev/null
+  "$sandbox_script" tui tui-jobs Enter >/dev/null
+  "$sandbox_script" tui tui-runs R >/dev/null
+  "$sandbox_script" tui tui-run-detail R Enter >/dev/null
+  $started && "$sandbox_script" down >/dev/null
+  echo "captures: cli-{doctor,projects,jobs,runs}.txt, tui-{projects,jobs,runs,run-detail}.txt"
+fi
+
+echo "evidence: $evidence"
+exit $status
