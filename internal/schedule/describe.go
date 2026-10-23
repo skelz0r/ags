@@ -27,6 +27,9 @@ func Describe(expr string) string {
 		return expr
 	}
 	minute, hour, dom, month, dow := fields[0], fields[1], fields[2], fields[3], fields[4]
+	if minute == "*" && hour == "*" && dom == "*" && month == "*" && dow == "*" {
+		return "every minute"
+	}
 	m, errM := strconv.Atoi(minute)
 	if errM != nil {
 		return expr
