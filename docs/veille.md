@@ -42,7 +42,7 @@ says "read in code". Anything marked *unverified* was not confirmed.
   Devin, GitHub, Google, Warp, Factory, Amp).
 - Local: herdr 0.9.3 (`herdr --skill`, `herdr api schema`), Claude Code
   2.1.308 (`claude --help`), the installed herdr plugins (heraldr,
-  navette, space-agents).
+  space-agents).
 
 Not found: `butt` and `Husky` (as a scheduler) do not show up in repo,
 code or web search; `claude-scheduler/claude_scheduler` does not exist
