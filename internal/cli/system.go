@@ -1,0 +1,306 @@
+package cli
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"io/fs"
+	"os"
+	"os/exec"
+	"os/signal"
+	"path/filepath"
+	"strings"
+	"syscall"
+	"time"
+
+	"github.com/skelz0r/ags"
+	"github.com/skelz0r/ags/internal/config"
+	"github.com/skelz0r/ags/internal/daemon"
+	"github.com/skelz0r/ags/internal/launchd"
+	"github.com/skelz0r/ags/internal/paths"
+	"github.com/skelz0r/ags/internal/state"
+)
+
+const starterConfig = `default_command: claude
+
+preprompt: |
+  This run was started by ags; nobody is watching. Do not ask
+  questions: if something blocks you, stop and say why.
+
+commands:
+  claude:
+    argv: ["claude", "-p", "--output-format", "json"]
+    stdin: prompt
+    timeout: 45m
+
+notifications:
+  on: [failed, missed, precheck_error, invalid, unapproved]
+  channels: [macos]
+`
+
+func (a *App) executable() (string, error) {
+	exe, err := a.Exe()
+	if err != nil {
+		return "", err
+	}
+	if resolved, err := filepath.EvalSymlinks(exe); err == nil {
+		exe = resolved
+	}
+	if strings.Contains(exe, "/go-build") {
+		return "", failure(CodeError, "ags runs from a temporary go build (%s): install it first (go install ./cmd/ags)", exe)
+	}
+	return exe, nil
+}
+
+func (a *App) agent(exe string) launchd.Agent {
+	env := map[string]string{"PATH": a.Getenv("PATH"), "HOME": a.Getenv("HOME")}
+	if a.paths.Isolated {
+		env["AGS_HOME"] = a.Getenv("AGS_HOME")
+	}
+	return launchd.Agent{Label: paths.Label, Program: []string{exe, "daemon"}, Env: env, LogPath: a.paths.DaemonLog()}
+}
+
+func (a *App) install(args []string) (result, error) {
+	f := newFlags("install")
+	if err := f.parse(args, 0, 0); err != nil {
+		return result{}, err
+	}
+	exe, err := a.executable()
+	if err != nil {
+		return result{}, err
+	}
+	var b strings.Builder
+	if _, err := os.Stat(a.paths.MachineConfig()); errors.Is(err, fs.ErrNotExist) {
+		if err := config.WriteFileAtomic(a.paths.MachineConfig(), []byte(starterConfig), 0o644); err != nil {
+			return result{}, err
+		}
+		fmt.Fprintf(&b, "wrote a starter %s\n", a.paths.MachineConfig())
+	}
+	if _, err := a.store(); err != nil {
+		return result{}, err
+	}
+	skills, err := a.installSkills()
+	if err != nil {
+		return result{}, err
+	}
+	fmt.Fprintf(&b, "linked skills %s into %s\n", strings.Join(skills, ", "), a.paths.ClaudeSkills)
+	plist := a.agent(exe).Plist()
+	if err := config.WriteFileAtomic(a.paths.Plist(), plist, 0o644); err != nil {
+		return result{}, err
+	}
+	fmt.Fprintf(&b, "wrote %s (daemon: %s daemon)\n", a.paths.Plist(), exe)
+	loaded := false
+	if a.paths.Isolated {
+		b.WriteString("AGS_HOME is set: the LaunchAgent is not loaded\n")
+	} else {
+		if err := launchd.Bootstrap(paths.Label, a.paths.Plist()); err != nil {
+			return result{}, err
+		}
+		loaded = true
+		b.WriteString("LaunchAgent loaded\n")
+	}
+	return result{data: map[string]any{"plist": a.paths.Plist(), "executable": exe, "skills": skills, "loaded": loaded}, text: b.String()}, nil
+}
+
+func (a *App) installSkills() ([]string, error) {
+	entries, err := fs.ReadDir(ags.Skills, "skills")
+	if err != nil {
+		return nil, err
+	}
+	var names []string
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		name := e.Name()
+		copyDir := filepath.Join(a.paths.SkillsCopy(), name)
+		if err := os.RemoveAll(copyDir); err != nil {
+			return nil, err
+		}
+		err := fs.WalkDir(ags.Skills, "skills/"+name, func(path string, d fs.DirEntry, err error) error {
+			if err != nil || d.IsDir() {
+				return err
+			}
+			data, err := ags.Skills.ReadFile(path)
+			if err != nil {
+				return err
+			}
+			return config.WriteFileAtomic(filepath.Join(a.paths.SkillsCopy(), strings.TrimPrefix(path, "skills/")), data, 0o644)
+		})
+		if err != nil {
+			return nil, err
+		}
+		link := filepath.Join(a.paths.ClaudeSkills, name)
+		if info, err := os.Lstat(link); err == nil {
+			if info.Mode()&os.ModeSymlink == 0 {
+				return nil, failure(CodeError, "%s exists and is not a link made by ags", link)
+			}
+			os.Remove(link)
+		}
+		if err := os.MkdirAll(a.paths.ClaudeSkills, 0o755); err != nil {
+			return nil, err
+		}
+		if err := os.Symlink(copyDir, link); err != nil {
+			return nil, err
+		}
+		names = append(names, name)
+	}
+	return names, nil
+}
+
+func (a *App) uninstall(args []string) (result, error) {
+	f := newFlags("uninstall")
+	if err := f.parse(args, 0, 0); err != nil {
+		return result{}, err
+	}
+	var b strings.Builder
+	if !a.paths.Isolated {
+		if err := launchd.Bootout(paths.Label); err != nil {
+			return result{}, err
+		}
+	}
+	if err := os.Remove(a.paths.Plist()); err == nil {
+		fmt.Fprintf(&b, "removed %s\n", a.paths.Plist())
+	}
+	links, _ := filepath.Glob(filepath.Join(a.paths.ClaudeSkills, "ags-*"))
+	for _, link := range links {
+		if target, err := os.Readlink(link); err == nil && strings.HasPrefix(target, a.paths.SkillsCopy()) {
+			os.Remove(link)
+			fmt.Fprintf(&b, "removed %s\n", link)
+		}
+	}
+	b.WriteString("config, registry and history are kept")
+	return result{data: map[string]any{"plist": a.paths.Plist()}, text: b.String()}, nil
+}
+
+func (a *App) daemon(args []string) (result, error) {
+	f := newFlags("daemon")
+	if err := f.parse(args, 0, 0); err != nil {
+		return result{}, err
+	}
+	if _, err := a.store(); err != nil {
+		return result{}, err
+	}
+	log, err := os.OpenFile(a.paths.DaemonLog(), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
+	if err != nil {
+		return result{}, err
+	}
+	defer log.Close()
+	d, err := daemon.New(daemon.Options{Paths: a.paths, Notifier: a.Notifier, Log: log, Now: a.Now})
+	if err != nil {
+		return result{}, err
+	}
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	if err := d.Run(ctx); err != nil {
+		return result{}, failure(CodeBusy, "%v", err)
+	}
+	return result{text: "daemon stopped"}, nil
+}
+
+type check struct {
+	Name   string `json:"name"`
+	OK     bool   `json:"ok"`
+	Detail string `json:"detail"`
+}
+
+func DaemonAlive(st *state.State, now time.Time) (bool, string) {
+	if st.Daemon.LastTick.IsZero() {
+		return false, "never ticked"
+	}
+	age := now.Sub(st.Daemon.LastTick).Round(time.Second)
+	if !state.ProcessAlive(st.Daemon.PID) {
+		return false, fmt.Sprintf("pid %d not running, last tick %s ago", st.Daemon.PID, age)
+	}
+	if age > 3*daemon.TickInterval {
+		return false, fmt.Sprintf("pid %d alive but last tick %s ago", st.Daemon.PID, age)
+	}
+	return true, fmt.Sprintf("pid %d, last tick %s ago", st.Daemon.PID, age)
+}
+
+func (a *App) doctor(args []string) (result, error) {
+	f := newFlags("doctor")
+	if err := f.parse(args, 0, 0); err != nil {
+		return result{}, err
+	}
+	var checks []check
+	add := func(name string, ok bool, format string, args ...any) {
+		checks = append(checks, check{Name: name, OK: ok, Detail: fmt.Sprintf(format, args...)})
+	}
+	if _, err := os.Stat(a.paths.Plist()); err != nil {
+		add("launchagent", false, "%s missing: run ags install", a.paths.Plist())
+	} else if a.paths.Isolated {
+		add("launchagent", true, "%s written, not loaded (AGS_HOME set)", a.paths.Plist())
+	} else if launchd.Loaded(paths.Label) {
+		add("launchagent", true, "%s loaded", paths.Label)
+	} else {
+		add("launchagent", false, "%s not loaded: run ags install", paths.Label)
+	}
+	store, err := a.store()
+	if err != nil {
+		return result{}, err
+	}
+	st, err := store.Read()
+	if err != nil {
+		return result{}, err
+	}
+	alive, detail := DaemonAlive(st, a.Now())
+	add("daemon", alive, "%s", detail)
+
+	m, issues := a.loadMachine()
+	switch {
+	case !m.Exists:
+		add("machine config", false, "%s missing: run ags install", a.paths.MachineConfig())
+	case len(issues) > 0:
+		add("machine config", false, "%s", issues.Error())
+	default:
+		add("machine config", true, "%s, default command %s", a.paths.MachineConfig(), orNone(m.DefaultCommand))
+	}
+	for name, cmd := range m.Commands {
+		program := paths.ExpandHome(cmd.Argv[0], a.Getenv("HOME"))
+		if path, err := exec.LookPath(program); err != nil {
+			add("command "+name, false, "%s not found in PATH", program)
+		} else {
+			add("command "+name, true, "%s", path)
+		}
+	}
+	reg, err := a.registry()
+	if err != nil {
+		add("registry", false, "%v", err)
+	} else {
+		for _, entry := range reg.Projects {
+			p, issues := config.Loader{Machine: m}.Load(entry.Name, entry.Path)
+			switch {
+			case len(issues) > 0:
+				add("project "+entry.Name, false, "%s", issues.Error())
+			case len(p.Warnings) > 0:
+				add("project "+entry.Name, false, "%d job(s); %s", len(p.Jobs), p.Warnings.Error())
+			default:
+				unapproved := 0
+				for _, j := range p.Jobs {
+					if !st.Approved(j) {
+						unapproved++
+					}
+				}
+				add("project "+entry.Name, unapproved == 0, "%s, %d job(s), %d unapproved", paths.Abbreviate(entry.Path, a.Getenv("HOME")), len(p.Jobs), unapproved)
+			}
+		}
+	}
+	for key, e := range st.ConfigErrors {
+		add("daemon sees "+key, false, "since %s: %s", e.Since.Local().Format(time.RFC3339), e.Message)
+	}
+	var b strings.Builder
+	failed := 0
+	for _, c := range checks {
+		mark := "ok  "
+		if !c.OK {
+			mark = "FAIL"
+			failed++
+		}
+		fmt.Fprintf(&b, "%s %s: %s\n", mark, c.Name, c.Detail)
+	}
+	if failed > 0 {
+		return result{text: b.String()}, &Error{Code: CodeError, Message: fmt.Sprintf("%d check(s) failed", failed), exit: ExitError, data: checks}
+	}
+	return result{data: checks, text: b.String()}, nil
+}
