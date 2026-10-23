@@ -15,7 +15,7 @@ fixes still hold, audit what was merged. A coding agent can do most of
 it if something starts it on time in the right directory and keeps a
 trace of what happened.
 
-That is what ags does. Each project describes its jobs (a name, a cron
+That is what ags (agents-scheduler) does. Each project describes its jobs (a name, a cron
 schedule, a prompt) in a versioned `.ags.yml`. A daemon started by
 launchd reads every registered project and, when a job is due, runs a
 command of your choice with the prompt: `claude -p`, or a script that
