@@ -20,3 +20,8 @@ go build ./... && go vet ./... && go test ./...
 Never touch the real `~/.config/ags`, `~/.local/state/ags` or the
 installed LaunchAgent from tests or experiments: point the tool at a
 temporary directory (`AGS_HOME`).
+
+## QA
+
+To prove a change on this worktree's build (sandboxed daemon, CLI, TUI
+captures, `bin/qa` on the diff), use the `verify-ags` skill.
