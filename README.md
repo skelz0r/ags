@@ -24,6 +24,10 @@ after the Mac slept, records every run with its output, sends a macOS
 notification when one fails, and a TUI shows all projects, jobs and
 runs in one place.
 
+<p align="center">
+  <img src="docs/screenshots/tui-jobs.png" width="820" alt="TUI: the jobs of a project with their schedule in words, origin, next run and last status">
+</p>
+
 ## Highlights
 
 - **Jobs live with the code.** `.ags.yml` is versioned with the repo,
@@ -332,8 +336,21 @@ source <(ags completion zsh)
 ```
 
 `ags` alone opens the TUI: projects, their jobs (next run, last status,
-approval), and every run with its prompt and output. `ags help` lists
-the commands; the main ones:
+approval), and every run with its prompt and output.
+
+<p align="center">
+  <img src="docs/screenshots/tui-projects.png" width="400" alt="TUI home: registered projects with their next run and last failure">
+  &nbsp;
+  <img src="docs/screenshots/tui-runs.png" width="400" alt="TUI: every run, newest first, with trigger, status and duration">
+</p>
+<p align="center">
+  <img src="docs/screenshots/tui-run.png" width="560" alt="TUI: one run with its command, the rendered prompt and the command's output">
+</p>
+
+The screenshots come from a sandbox (`AGS_HOME`) holding the jobs
+above, with a stub in place of `claude`.
+
+`ags help` lists the commands; the main ones:
 
 ```sh
 ags validate                      # schema, prompt files, next occurrences
