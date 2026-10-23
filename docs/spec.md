@@ -1,4 +1,4 @@
-# agent-scheduling: specification
+# ags: specification
 
 A small personal scheduler for coding agents on a Mac. Register
 projects, give each one jobs (a name, a schedule, a prompt), and a
@@ -16,7 +16,7 @@ multiplexer is another. The tool does not know or care which.
 The project file says *what* to do, in words that hold for anyone who
 clones the repo. *How* (which agent, which skills, which issue
 tracker) belongs to each developer: their machine config (command and
-preprompt) and an unversioned `.agent-scheduling.local.yml`.
+preprompt) and an unversioned `.ags.local.yml`.
 
 ## Decisions
 
@@ -60,14 +60,12 @@ preprompt) and an unversioned `.agent-scheduling.local.yml`.
 
 | Path | Content | Versioned |
 |---|---|---|
-| `<project>/.agent-scheduling.yml` | the project's jobs and preprompt | with the repo |
-| `<project>/.agent-scheduling.local.yml` | personal overrides and jobs | no, gitignored |
-| `~/.config/agent-scheduling/config.yml` | commands, default command, preprompt, notifications | in the dotfiles if wanted |
-| `~/.config/agent-scheduling/projects.yml` | registry of projects (written by the CLI and TUI) | no |
-| `~/.local/state/agent-scheduling/` | `state.json` (cursors), `runs/`, `history.jsonl`, `daemon.log`, `daemon.lock` | no |
-| `~/Library/LaunchAgents/dev.agent-scheduling.plist` | the launchd agent, written by `ags install` | no |
-
-Names (`.agent-scheduling.yml`, `ags`) are provisional.
+| `<project>/.ags.yml` | the project's jobs and preprompt | with the repo |
+| `<project>/.ags.local.yml` | personal overrides and jobs | no, gitignored |
+| `~/.config/ags/config.yml` | commands, default command, preprompt, notifications | in the dotfiles if wanted |
+| `~/.config/ags/projects.yml` | registry of projects (written by the CLI and TUI) | no |
+| `~/.local/state/ags/` | `state.json` (cursors, approved jobs), `runs/`, `history.jsonl`, `daemon.log`, `daemon.lock` | no |
+| `~/Library/LaunchAgents/dev.ags.plist` | the launchd agent, written by `ags install` | no |
 
 ## Machine config
 
@@ -75,7 +73,7 @@ Names (`.agent-scheduling.yml`, `ags`) are provisional.
 default_command: claude
 
 preprompt: |
-  This run was started by a scheduler; nobody is watching. Do not ask
+  This run was started by ags; nobody is watching. Do not ask
   questions: if something blocks you, stop and say why. Open issues
   with gh. For a security audit, use the /security-review skill.
 
@@ -111,7 +109,7 @@ Every command also gets `AGS_PROJECT`, `AGS_PROJECT_PATH`, `AGS_JOB`,
 `AGS_RUN_ID`, `AGS_SCHEDULED_FOR` and `AGS_TRIGGER` (`schedule`,
 `catch_up`, `manual`) in its environment.
 
-## Project config: `.agent-scheduling.yml`
+## Project config: `.ags.yml`
 
 ```yaml
 version: 1
@@ -133,11 +131,11 @@ jobs:
 
   test-audit:
     schedule: "0 10 1,15 * *"
-    prompt_file: .agent-scheduling/test-audit.md
+    prompt_file: .ags/test-audit.md
 
   code-audit:
     schedule: "0 14 1 * *"
-    prompt_file: .agent-scheduling/code-audit.md
+    prompt_file: .ags/code-audit.md
     enabled: false
 ```
 
@@ -163,7 +161,7 @@ is templated.
 A project file holds no command, only a command name: whatever a repo
 contains, it cannot choose what program runs on the machine.
 
-## Local config: `.agent-scheduling.local.yml`
+## Local config: `.ags.local.yml`
 
 Same schema, `version` optional, never versioned. It is read after the
 project file and merged into it:
@@ -199,6 +197,26 @@ The prompt sent to the command is, separated by blank lines: the
 machine preprompt, the project preprompt, the local preprompt, then the
 job's prompt, templated. `ags run --dry-run` prints it exactly.
 
+## Approval of shared jobs
+
+A job of the versioned file only runs once you have approved its
+current version, so that a pull cannot change what runs on your
+machine without you seeing it.
+
+- The fingerprint of a shared job covers what decides what runs: its
+  prompt (the content of `prompt_file` included), its precheck, its
+  command name and the project preprompt. Schedule, `enabled` and
+  timezone changes need no approval.
+- Approval stores the fingerprint and the approved text in the state.
+  A job never approved, or whose fingerprint changed, is `unapproved`:
+  its occurrences are recorded `skipped` (`unapproved`), with one
+  notification per change.
+- Approving shows the diff against the last approved version, or the
+  whole job the first time.
+- `ags add` shows the project's jobs and asks to approve them (`--approve`
+  to skip the question).
+- Local jobs and the local file need no approval: you wrote them.
+
 ## TUI
 
 `ags` with no argument opens it.
@@ -209,9 +227,9 @@ job's prompt, templated. `ags run --dry-run` prints it exactly.
   kept), `enter` open it.
 - **Jobs of a project**: name, schedule in words ("Mondays 09:30"),
   command, origin (shared or local), next run, last run and its status,
-  paused state. `n` new job, `e` edit (opens `$EDITOR` on the file at
+  paused and approval state. `n` new job, `e` edit (opens `$EDITOR` on the file at
   the job's line), `d` delete (with confirmation), `p` pause / resume,
-  `r` run now, `enter` runs of the job.
+  `r` run now, `A` approve (shows the diff), `enter` runs of the job.
 - **Runs**: all projects or one job, newest first: time, trigger,
   status, duration, exit code; `enter` shows the rendered prompt, the
   precheck output and the command's stdout and stderr.
@@ -244,6 +262,8 @@ usage.
 - `ags runs [--project p] [--job j] [--status s] [--since 7d]`,
   `ags show <run>`
 - `ags pause <project[/job]>`, `ags resume <project[/job]>`
+- `ags approve <project[/job]> [--yes]`: show the diff of unapproved
+  jobs and approve them.
 - `ags install`, `ags uninstall`: LaunchAgent (with the PATH of the
   installing shell) and skills linked into `~/.claude/skills`.
 - `ags daemon`: the foreground loop launchd runs.
@@ -251,7 +271,7 @@ usage.
   project path present and its files valid, every command's program
   found.
 
-`ags run`, `ags add` and the editing commands refuse to run when
+`ags run`, `ags add`, `ags approve` and the editing commands refuse to run when
 `AGS_RUN_ID` is set, so a scheduled run does not schedule more work by
 accident.
 
@@ -303,7 +323,7 @@ accident.
 ## Runs and history
 
 - Statuses: `running`, `succeeded` (command exited 0), `failed`,
-  `skipped` (`precheck`, `overlap`, `paused`), `precheck_error`,
+  `skipped` (`precheck`, `overlap`, `paused`, `unapproved`), `precheck_error`,
   `missed`.
 - A run records project, job, trigger, scheduled time, lateness, start
   and end, the command name and argv, exit code, the first 64 KiB of
@@ -349,12 +369,12 @@ What runs without anyone watching, and who decides it:
 
 What follows from it:
 
-- **Registering a project trusts its file.** Nothing runs for a repo
-  until `ags add`; after that, a `git pull` that changes a job or a
-  precheck changes what runs on the next occurrence, with no review.
-  A precheck is a shell line executed by the daemon itself, like a git
-  hook or a Makefile target. For a shared repo, that means every
-  collaborator who can push can run code and prompts on your machine.
+- **A shared file is code from other people.** A precheck is a shell
+  line executed by the daemon itself, like a git hook; a prompt is an
+  instruction to an agent holding your credentials. Nothing runs for a
+  repo until `ags add`, and after that a shared job runs only in the
+  version you approved: a pull that changes its prompt or precheck
+  stops it until you look at the diff.
 - **The agent is the real exposure.** A scheduled agent usually runs
   with `--dangerously-skip-permissions` or close to it, with your
   credentials (gh token, SSH keys, cloud CLIs). A prompt injected
@@ -371,9 +391,10 @@ What the tool guarantees, and nothing more:
 
 - a repo cannot define the program that runs, only name a command of
   your machine config;
+- a shared job runs only in a version you approved;
 - `ags` refuses to add or trigger work from inside a run (`AGS_RUN_ID`
   set): that prevents accidents, not an agent determined to edit the
-  YAML;
+  YAML or the state;
 - run directories, which hold prompts and outputs, are readable by you
   only.
 
@@ -383,7 +404,7 @@ What the tool guarantees, and nothing more:
   cost): the command's exit code is the run's result.
 - Worktrees: the command's business (`claude -p -w`, or the agent the
   prompt is handed to).
-- Permission profiles, sandboxing, approval of project files, outputs
+- Permission profiles, sandboxing, outputs
   applied by the tool.
 - Event triggers, remote machines, Linux and Windows.
 - Jitter, global concurrency tuning, quota-aware scheduling, waking the
@@ -394,15 +415,9 @@ What the tool guarantees, and nothing more:
 
 ## Open questions
 
-1. Final names of the tool, CLI and project file.
-2. Approve changes of the shared file: when a pull changes a job's
-   prompt or precheck, should the job wait until it is accepted in the
-   TUI (a hash stored in the state)? Cheap, and it closes the
-   "collaborator pushes a job" case; without it, registering a shared
-   repo means trusting every pusher.
-3. Should a command be able to carry its own preprompt (a `claude -p`
+1. Should a command be able to carry its own preprompt (a `claude -p`
    command needs "do not ask questions", a hand-off to an interactive
    agent does not)?
-4. Default `catch_up` of 12 h, or shorter?
-5. Jobs of `~`: `~/.agent-scheduling.yml` with no local file, or should
-   they live in the dotfiles?
+2. Default `catch_up` of 12 h, or shorter?
+3. Jobs of `~`: `~/.ags.yml` with no local file, or should they live
+   in the dotfiles?
