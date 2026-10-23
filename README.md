@@ -382,3 +382,7 @@ The command, or the agent it starts, handles what it needs to.
   daemon and schedule semantics
 - [Landscape review](docs/veille.md): the existing tools and what ags
   took from each
+
+## License
+
+MIT, see [LICENSE](LICENSE).
