@@ -2,6 +2,7 @@ package cli_test
 
 import (
 	"encoding/json"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -348,5 +349,70 @@ func TestANewSharedJobIsApprovedInTheVersionThatWasWritten(t *testing.T) {
 	w.MustCLI("run", "proj/b", "--dry-run", "--json").Decode(t, &d)
 	if !d.Approved || !strings.HasSuffix(d.Prompt, "B.\n") {
 		t.Fatalf("expected the written version approved, got %+v", d)
+	}
+}
+
+func TestShellCompletionOffersCommandsFlagsAndKnownTargets(t *testing.T) {
+	w := New(t)
+	w.SharedFile("version: 1\njobs:\n  a:\n    schedule: \"@daily\"\n    prompt: A.\n")
+	w.Register()
+	run := w.MustCLI("run", "proj/a", "--json")
+	var ran struct {
+		ID string `json:"id"`
+	}
+	run.Decode(t, &ran)
+
+	cases := []struct {
+		name  string
+		words []string
+		want  []string
+	}{
+		{"commands", []string{""}, []string{"run", "show", "completion"}},
+		{"jobs to run", []string{"run", ""}, []string{"proj/a"}},
+		{"flags of a command", []string{"run", "--"}, []string{"--dry-run", "--skip-precheck", "--json"}},
+		{"recent runs to show", []string{"show", ""}, []string{ran.ID}},
+		{"projects and jobs to pause", []string{"pause", ""}, []string{"proj", "proj/a"}},
+		{"a project to put a new job in", []string{"new", ""}, []string{"proj/"}},
+		{"value of --project", []string{"runs", "--project", ""}, []string{"proj"}},
+		{"value of --status", []string{"runs", "--status", ""}, []string{"failed", "precheck_error"}},
+		{"inline value of --status", []string{"runs", "--status=f"}, []string{"--status=failed"}},
+		{"files for a flag value starting with a dash", []string{"new", "proj/b", "--prompt-file", "-"}, []string{":files"}},
+		{"jobs after an inline boolean", []string{"run", "--dry-run=false", ""}, []string{"proj/a"}},
+		{"files for a path", []string{"validate", ""}, []string{":files"}},
+		{"shells", []string{"completion", ""}, []string{"zsh"}},
+		{"nothing past the last argument", []string{"run", "proj/a", ""}, nil},
+		{"nothing for a free value", []string{"next", "-n", ""}, nil},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			res := w.CLI(append([]string{"__complete"}, c.words...)...)
+			if res.Exit != 0 || res.Stderr != "" {
+				t.Fatalf("completion never fails, got %d %q", res.Exit, res.Stderr)
+			}
+			got := map[string]bool{}
+			for _, line := range strings.Split(strings.TrimSpace(res.Stdout), "\n") {
+				if value, _, _ := strings.Cut(line, "\t"); value != "" {
+					got[value] = true
+				}
+			}
+			if c.want == nil && len(got) > 0 {
+				t.Fatalf("expected no candidate, got %v", got)
+			}
+			for _, want := range c.want {
+				if !got[want] {
+					t.Fatalf("expected %q among %v", want, got)
+				}
+			}
+		})
+	}
+}
+
+func TestShellCompletionWritesNothing(t *testing.T) {
+	w := New(t)
+	for _, words := range [][]string{{"show", ""}, {"run", ""}, {"runs", "--project", ""}} {
+		w.CLI(append([]string{"__complete"}, words...)...)
+	}
+	if _, err := os.Stat(w.Paths.StateDir); !os.IsNotExist(err) {
+		t.Fatalf("completing created the state directory: %v", err)
 	}
 }
