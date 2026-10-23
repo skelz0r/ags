@@ -297,6 +297,17 @@ usage.
 - `ags doctor`: LaunchAgent loaded, daemon alive, last tick, every
   project path present and its files valid, every command's program
   found.
+- `ags completion zsh`: prints the zsh completion script. Bash is
+  left out: its word splitting on `=` and `:` and its quoting made
+  every candidate insertion a special case.
+  The script calls the hidden `ags __complete <words...>`, whose last
+  word is the one being completed; it prints one `value<TAB>description`
+  per line, or `:files` to let the shell complete paths. Commands come
+  from the command table, flags and the number of arguments from each
+  command's own flag set (`ags <command> -h` prints its usage), and the
+  arguments from its usage line: registered projects, their jobs and
+  the 30 most recent runs. `install` does not set it up: it is a line
+  in the shell's rc file.
 
 `ags run` (except `--dry-run`), `ags add`, `ags remove`, `ags approve`,
 `ags pause`, `ags resume`, `ags new`, `ags edit`, `ags delete`,

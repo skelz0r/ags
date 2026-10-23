@@ -56,6 +56,7 @@ type Error struct {
 	Message string `json:"message"`
 	exit    int
 	data    any
+	usage   *usage
 }
 
 func (e *Error) Error() string { return e.Message }
@@ -89,25 +90,26 @@ var commands map[string]command
 
 func init() {
 	commands = map[string]command{
-		"add":       {run: (*App).add, editing: true, summary: "add <path> [--name slug] [--approve]"},
-		"remove":    {run: (*App).remove, editing: true, summary: "remove <project>"},
-		"projects":  {run: (*App).projects, summary: "projects"},
-		"validate":  {run: (*App).validate, summary: "validate [path]"},
-		"jobs":      {run: (*App).jobs, summary: "jobs [--project p]"},
-		"next":      {run: (*App).next, summary: "next <project/job> [-n 5]"},
-		"run":       {run: (*App).runJob, summary: "run <project/job> [--skip-precheck] [--dry-run]"},
-		"runs":      {run: (*App).runs, summary: "runs [--project p] [--job j] [--status s] [--since 7d] [--limit n]"},
-		"show":      {run: (*App).show, summary: "show <run>"},
-		"pause":     {run: (*App).pause, editing: true, summary: "pause <project[/job]>"},
-		"resume":    {run: (*App).resume, editing: true, summary: "resume <project[/job]>"},
-		"approve":   {run: (*App).approve, editing: true, summary: "approve <project[/job]> [--yes] [--fingerprints f1,f2]"},
-		"new":       {run: (*App).newJob, editing: true, summary: "new <project/job> --schedule cron --prompt text [--local] [--command c] [--precheck sh]"},
-		"edit":      {run: (*App).edit, editing: true, summary: "edit <project/job>"},
-		"delete":    {run: (*App).deleteJob, editing: true, summary: "delete <project/job> [--yes]"},
-		"install":   {run: (*App).install, editing: true, summary: "install"},
-		"uninstall": {run: (*App).uninstall, editing: true, summary: "uninstall"},
-		"daemon":    {run: (*App).daemon, summary: "daemon"},
-		"doctor":    {run: (*App).doctor, summary: "doctor"},
+		"add":        {run: (*App).add, editing: true, summary: "add <path> [--name slug] [--approve]"},
+		"remove":     {run: (*App).remove, editing: true, summary: "remove <project>"},
+		"projects":   {run: (*App).projects, summary: "projects"},
+		"validate":   {run: (*App).validate, summary: "validate [path]"},
+		"jobs":       {run: (*App).jobs, summary: "jobs [--project p]"},
+		"next":       {run: (*App).next, summary: "next <project/job> [-n 5]"},
+		"run":        {run: (*App).runJob, summary: "run <project/job> [--skip-precheck] [--dry-run]"},
+		"runs":       {run: (*App).runs, summary: "runs [--project p] [--job j] [--status s] [--since 7d] [--limit n]"},
+		"show":       {run: (*App).show, summary: "show <run>"},
+		"pause":      {run: (*App).pause, editing: true, summary: "pause <project[/job]>"},
+		"resume":     {run: (*App).resume, editing: true, summary: "resume <project[/job]>"},
+		"approve":    {run: (*App).approve, editing: true, summary: "approve <project[/job]> [--yes] [--fingerprints f1,f2]"},
+		"new":        {run: (*App).newJob, editing: true, summary: "new <project/job> --schedule cron --prompt text [--local] [--command c] [--precheck sh]"},
+		"edit":       {run: (*App).edit, editing: true, summary: "edit <project/job>"},
+		"delete":     {run: (*App).deleteJob, editing: true, summary: "delete <project/job> [--yes]"},
+		"install":    {run: (*App).install, editing: true, summary: "install"},
+		"uninstall":  {run: (*App).uninstall, editing: true, summary: "uninstall"},
+		"daemon":     {run: (*App).daemon, summary: "daemon"},
+		"doctor":     {run: (*App).doctor, summary: "doctor"},
+		"completion": {run: (*App).completion, summary: "completion zsh"},
 	}
 }
 
@@ -130,6 +132,10 @@ func Main(args []string, openTUI func(*App) error) int {
 }
 
 func (a *App) Run(args []string) int {
+	if len(args) > 0 && args[0] == completeCommand {
+		a.setup()
+		return a.complete(args[1:])
+	}
 	var rest []string
 	for _, arg := range args {
 		if arg == "--json" {
@@ -138,14 +144,7 @@ func (a *App) Run(args []string) int {
 		}
 		rest = append(rest, arg)
 	}
-	if a.Now == nil {
-		a.Now = time.Now
-	}
-	if a.Exe == nil {
-		a.Exe = os.Executable
-	}
-	a.paths = paths.Resolve(a.Getenv)
-	a.reader = bufio.NewReader(a.Stdin)
+	a.setup()
 
 	if len(rest) == 0 {
 		if a.json || a.OpenTUI == nil {
@@ -174,6 +173,17 @@ func (a *App) Run(args []string) int {
 	return a.emit(res, err)
 }
 
+func (a *App) setup() {
+	if a.Now == nil {
+		a.Now = time.Now
+	}
+	if a.Exe == nil {
+		a.Exe = os.Executable
+	}
+	a.paths = paths.Resolve(a.Getenv)
+	a.reader = bufio.NewReader(a.Stdin)
+}
+
 func (a *App) refuseInsideRun(name string) error {
 	if runID := a.Getenv("AGS_RUN_ID"); runID != "" {
 		return failure(CodeInsideRun, "ags %s refuses to run inside a scheduled run (AGS_RUN_ID=%s)", name, runID)
@@ -181,10 +191,12 @@ func (a *App) refuseInsideRun(name string) error {
 	return nil
 }
 
+var commandOrder = []string{"add", "remove", "projects", "validate", "jobs", "next", "run", "runs", "show", "pause", "resume", "approve", "new", "edit", "delete", "install", "uninstall", "daemon", "doctor", "completion"}
+
 func helpText() string {
 	var b strings.Builder
 	b.WriteString("ags: schedule coding agents\n\nusage:\n  ags                 open the TUI\n")
-	for _, name := range []string{"add", "remove", "projects", "validate", "jobs", "next", "run", "runs", "show", "pause", "resume", "approve", "new", "edit", "delete", "install", "uninstall", "daemon", "doctor"} {
+	for _, name := range commandOrder {
 		fmt.Fprintf(&b, "  ags %s\n", commands[name].summary)
 	}
 	b.WriteString("\nevery command accepts --json: {\"ok\", \"data\", \"error\": {\"code\", \"message\"}}\nexit codes: 0 ok, 1 error, 2 invalid config or usage\n")
@@ -238,7 +250,11 @@ func newFlags(name string) *flags {
 
 func (f *flags) parse(args []string, minPos, maxPos int) error {
 	for {
-		if err := f.FlagSet.Parse(args); err != nil {
+		if err := f.FlagSet.Parse(args); errors.Is(err, flag.ErrHelp) {
+			e := usageError("usage: ags %s", commands[f.Name()].summary)
+			e.usage = f.usage(maxPos)
+			return e
+		} else if err != nil {
 			return usageError("%s: %v", f.Name(), err)
 		}
 		args = f.FlagSet.Args()

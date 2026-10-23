@@ -16,6 +16,13 @@ ags add ~/work/repo  # shows the shared jobs and asks to approve them
 ags doctor
 ```
 
+Shell completion of commands, flags, projects, jobs and runs, in
+`~/.zshrc` after `compinit`:
+
+```sh
+source <(ags completion zsh)
+```
+
 `ags` alone opens the TUI; `ags help` lists the commands. Set
 `AGS_HOME=/tmp/ags-try` to experiment without touching the real config,
 state or LaunchAgent.
