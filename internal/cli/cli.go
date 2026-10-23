@@ -111,15 +111,16 @@ func init() {
 	}
 }
 
-func Main(args []string) int {
+func Main(args []string, openTUI func(*App) error) int {
 	app := &App{
-		Getenv: os.Getenv,
-		Stdin:  os.Stdin,
-		Stdout: os.Stdout,
-		Stderr: os.Stderr,
-		Now:    time.Now,
-		IsTTY:  isTerminal(os.Stdin) && isTerminal(os.Stdout),
-		Exe:    os.Executable,
+		Getenv:  os.Getenv,
+		Stdin:   os.Stdin,
+		Stdout:  os.Stdout,
+		Stderr:  os.Stderr,
+		Now:     time.Now,
+		IsTTY:   isTerminal(os.Stdin) && isTerminal(os.Stdout),
+		Exe:     os.Executable,
+		OpenTUI: openTUI,
 	}
 	app.Notifier = notify.MacOS{Machine: func() *config.Machine {
 		m, _ := config.LoadMachine(paths.FromEnv().MachineConfig())
