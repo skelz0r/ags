@@ -67,6 +67,12 @@ preprompt) and an unversioned `.ags.local.yml`.
 | `~/.local/state/ags/` | `state.json` (cursors, approved jobs), `runs/`, `history.jsonl`, `daemon.log`, `daemon.lock` | no |
 | `~/Library/LaunchAgents/dev.ags.plist` | the launchd agent, written by `ags install` | no |
 
+`AGS_HOME`, when set, moves everything under one directory, for tests
+and experiments: `$AGS_HOME/config` (config and registry),
+`$AGS_HOME/state`, `$AGS_HOME/LaunchAgents` and
+`$AGS_HOME/claude-skills`. `ags install` then writes the plist (with
+`AGS_HOME` in its environment) but does not load it.
+
 ## Machine config
 
 ```yaml
@@ -87,9 +93,16 @@ commands:
     stdin: prompt
 
 notifications:
-  on: [failed, missed, precheck_error, invalid]
+  on: [failed, missed, precheck_error, invalid, unapproved]
   channels: [macos]
+
+precheck_timeout: 60s
 ```
+
+`notifications.on` takes `failed`, `missed`, `precheck_error`,
+`invalid` (a config error) and `unapproved`; all of them by default.
+`precheck_timeout` defaults to 60 s. Durations are written `30s`,
+`45m`, `12h` or `2d`.
 
 `handoff` stands for any script that gives the prompt to an agent
 already running elsewhere and exits; its interface is its own business.
@@ -100,7 +113,7 @@ Command fields:
 |---|---|---|
 | `argv` | required | program and arguments; `~` expanded; placeholders `{project.path}`, `{project.name}`, `{job.name}`, `{run.id}`, `{run.scheduled_for}` |
 | `stdin` | `prompt` | `prompt` (the rendered prompt on stdin) or `none` |
-| `prompt_arg` | | alternative to stdin: the prompt is substituted where `{prompt}` appears in `argv` |
+| `prompt_arg` | `false` | `true`: the prompt is substituted where `{prompt}` appears in `argv`, and `stdin` defaults to `none` |
 | `cwd` | project path | working directory |
 | `env` | `{}` | extra environment |
 | `timeout` | `5m` | the process is killed (SIGTERM then SIGKILL on its group) past it |
@@ -147,7 +160,7 @@ Fields:
 | `timezone` | machine timezone | IANA name, for every job of the file |
 | `preprompt` / `preprompt_file` | | text put before every job's prompt of the project |
 | `jobs.<name>` | | `[a-z0-9-]{1,40}` |
-| `schedule` | required | 5-field cron or `@hourly`, `@daily`, `@weekly`, `@monthly` |
+| `schedule` | required | 5-field cron or `@hourly`, `@daily`, `@weekly`, `@monthly` (`@yearly` and `@midnight` too; no `@every`) |
 | `prompt` / `prompt_file` | one required | inline text, or a path relative to the project |
 | `command` | `default_command` | name of a command of the machine config |
 | `precheck` | | shell command run in the project before the job |
@@ -205,8 +218,9 @@ machine without you seeing it.
 
 - The fingerprint of a shared job covers what decides what runs: its
   prompt (the content of `prompt_file` included), its precheck, its
-  command name and the project preprompt. Schedule, `enabled` and
-  timezone changes need no approval.
+  command name and the project preprompt, as written in the versioned
+  file. Schedule, `enabled` and timezone changes need no approval, and
+  neither does a local override of any field.
 - Approval stores the fingerprint and the approved text in the state.
   A job never approved, or whose fingerprint changed, is `unapproved`:
   its occurrences are recorded `skipped` (`unapproved`), with one
@@ -214,7 +228,8 @@ machine without you seeing it.
 - Approving shows the diff against the last approved version, or the
   whole job the first time.
 - `ags add` shows the project's jobs and asks to approve them (`--approve`
-  to skip the question).
+  to skip the question). It refuses a project whose files are invalid.
+- A shared job written by `ags new` is approved at once: you wrote it.
 - Local jobs and the local file need no approval: you wrote them.
 
 ## TUI
@@ -256,24 +271,41 @@ usage.
   job. Works on an unregistered path.
 - `ags jobs [--project p]`: jobs of all projects, next and last run.
 - `ags next <project/job> [-n 5]`
-- `ags run <project/job> [--skip-precheck] [--dry-run]`: run now;
-  `--dry-run` prints the precheck, the rendered prompt and the exact
-  argv without running anything.
-- `ags runs [--project p] [--job j] [--status s] [--since 7d]`,
-  `ags show <run>`
+- `ags run <project/job> [--skip-precheck] [--dry-run]`: run now, in
+  the foreground; `--dry-run` prints the precheck, the rendered prompt
+  and the exact argv without running anything. A shared job must be
+  approved and not already running. Exits 1 when the run is `failed`
+  or `precheck_error`.
+- `ags runs [--project p] [--job j] [--status s] [--since 7d]
+  [--limit 50]`, `ags show <run>` (a run id or a unique prefix)
+- `ags new <project/job> --schedule cron --prompt text [--prompt-file
+  f] [--command c] [--precheck sh] [--catch-up d] [--local]`,
+  `ags edit <project/job>` (`$EDITOR` at the job's line, then
+  validate), `ags delete <project/job> [--yes]`: the TUI's `n`, `e`
+  and `d`.
 - `ags pause <project[/job]>`, `ags resume <project[/job]>`
-- `ags approve <project[/job]> [--yes]`: show the diff of unapproved
-  jobs and approve them.
+- `ags approve <project[/job]> [--yes] [--fingerprints f1,f2]`: show
+  the diff of unapproved jobs and approve them. `--fingerprints` (given
+  by the `pending` list of a previous call) refuses if the content
+  changed since it was reviewed; the TUI always passes it.
 - `ags install`, `ags uninstall`: LaunchAgent (with the PATH of the
-  installing shell) and skills linked into `~/.claude/skills`.
+  installing shell) and skills linked into `~/.claude/skills`. The
+  skills are embedded in the binary and copied to `skills/` in the
+  state directory, which the links point to. `install` also writes a
+  starter machine config when there is none.
 - `ags daemon`: the foreground loop launchd runs.
 - `ags doctor`: LaunchAgent loaded, daemon alive, last tick, every
   project path present and its files valid, every command's program
   found.
 
-`ags run`, `ags add`, `ags approve` and the editing commands refuse to run when
-`AGS_RUN_ID` is set, so a scheduled run does not schedule more work by
-accident.
+`ags run` (except `--dry-run`), `ags add`, `ags remove`, `ags approve`,
+`ags pause`, `ags resume`, `ags new`, `ags edit`, `ags delete`,
+`ags install` and `ags uninstall` refuse to run when `AGS_RUN_ID` is
+set (error code `inside_run`), so a scheduled run does not schedule
+more work by accident.
+
+Error codes: `usage`, `invalid_config` (both exit 2), `not_found`,
+`inside_run`, `unapproved`, `busy`, `run_failed`, `error` (exit 1).
 
 ## Daemon
 
@@ -285,7 +317,8 @@ accident.
   commands.
 - An invalid file keeps the last valid version of the project in use;
   the error is recorded once, notified, and shown in the TUI until
-  fixed.
+  fixed. The last valid version lives in the daemon's memory: a
+  project already invalid when the daemon starts runs nothing.
 - After a wake (a gap of more than two ticks) firing waits 60 s, for
   the network to come back.
 - Commands run concurrently up to 4 at a time; a command running past
@@ -304,7 +337,10 @@ accident.
 - Up to two ticks late is on time. Later but within `catch_up`, the run
   fires with trigger `catch_up` and its lateness is available to the
   prompt (a Monday 09:30 audit caught up at 18:00 knows it). Beyond
-  `catch_up` it is recorded `missed`.
+  `catch_up` it is recorded `missed`, in the same single entry as the
+  earlier ones.
+- A paused job records its latest occurrence `skipped` (`paused`) and
+  nothing for the earlier ones.
 - One run per job at a time: an occurrence due while the job's command
   is still running is recorded `skipped` (`overlap`). A hand-off command
   returns at once, so overlap after the hand-off is the receiving
@@ -329,7 +365,8 @@ accident.
   and end, the command name and argv, exit code, the first 64 KiB of
   stdout and stderr, and the precheck output. A hand-off command can
   print an id on stdout to link the run to whatever it handed off to.
-- One directory per run under `runs/<project>/<job>/<run id>/`
+- One directory per run under `runs/<project>/<job>/<run id>/`, also
+  for `skipped` and `missed` entries (only `run.json` then)
   (`run.json`, `prompt.md`, `stdout`, `stderr`, `precheck.log`) and an
   append-only `history.jsonl` at the state root. The state directory
   is created `0700`.
