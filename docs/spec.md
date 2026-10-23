@@ -89,7 +89,7 @@ commands:
     stdin: prompt
     timeout: 45m
   handoff:
-    argv: ["~/dotfiles/bin/dispatch", "relay", "--cwd", "{project.path}"]
+    argv: ["~/bin/agent-handoff", "--cwd", "{project.path}"]
     stdin: prompt
 
 notifications:
@@ -189,7 +189,7 @@ project file and merged into it:
 
 ```yaml
 preprompt: |
-  Dispatch any fix through /start, never on the main checkout.
+  Make any fix in a new worktree, never on the main checkout.
 
 jobs:
   security-audit:
