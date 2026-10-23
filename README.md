@@ -6,8 +6,10 @@
 </p>
 
 > [!WARNING]
-> **Work in progress.** Built for my own use. File formats and commands
-> can still change from one commit to the next.
+> **Work in progress.** A personal tool, built for my own use on macOS
+> (launchd) and not tested anywhere else. File formats and commands can
+> still change from one commit to the next, and there is no promise of
+> support: issues and pull requests are read, not guaranteed an answer.
 
 Some work on a codebase comes back every week and nobody wants to do
 it: bump the dependencies, triage the backlog, check that last week's
