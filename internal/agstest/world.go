@@ -39,7 +39,7 @@ commands:
     argv: ["sh", "-c", "echo broken >&2; exit 3"]
 notifications:
   on: [failed, missed, precheck_error, invalid, unapproved]
-  channels: [macos]
+  channels: [desktop]
 `
 
 var Paris = mustLoad("Europe/Paris")

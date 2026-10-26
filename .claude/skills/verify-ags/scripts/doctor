@@ -88,7 +88,7 @@ else
   ok "real install" "$real_config, $real_plist and the loaded dev.ags (${loaded:-none}) do not reference the sandbox"
 fi
 
-hazards=$(cd "$repo" && git grep -lE 'cli\.Main\(|notify\.MacOS|paths\.FromEnv\(' -- '*_test.go' | tr '\n' ' ')
+hazards=$(cd "$repo" && git grep -lE 'cli\.Main\(|notify\.Desktop|paths\.FromEnv\(' -- '*_test.go' | tr '\n' ' ')
 if [ -n "$hazards" ]; then
   fail "tests isolation" "$hazards reach the real HOME or real notifications" "build the test world with agstest.New(t)"
 else
