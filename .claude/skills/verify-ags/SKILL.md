@@ -52,7 +52,7 @@ Read-only, one line per check, `FAIL ... -> fix: <command>`. Run it after
 - `isolation`: the wrapper points `AGS_HOME` at the sandbox.
 - `daemon`: the pid the sandbox started runs `tmp/qa/sandbox/bin/ags
   daemon` and is the pid the sandbox state names.
-- `ags *`: the sandbox's own `ags doctor` (LaunchAgent written not
+- `ags *`: the sandbox's own `ags doctor` (service file written, not
   loaded, daemon ticking, machine config, project approved).
 - `outbound command *`: every machine command resolves to `sh`, `echo`,
   `cat`, `sleep`, `true` or `false`: no real agent (claude, codex) can

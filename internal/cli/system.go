@@ -16,8 +16,8 @@ import (
 	"github.com/skelz0r/ags"
 	"github.com/skelz0r/ags/internal/config"
 	"github.com/skelz0r/ags/internal/daemon"
-	"github.com/skelz0r/ags/internal/launchd"
 	"github.com/skelz0r/ags/internal/paths"
+	"github.com/skelz0r/ags/internal/service"
 	"github.com/skelz0r/ags/internal/state"
 )
 
@@ -35,7 +35,7 @@ commands:
 
 notifications:
   on: [failed, missed, precheck_error, invalid, unapproved]
-  channels: [macos]
+  channels: [desktop]
 `
 
 func (a *App) executable() (string, error) {
@@ -52,12 +52,12 @@ func (a *App) executable() (string, error) {
 	return exe, nil
 }
 
-func (a *App) agent(exe string) launchd.Agent {
+func (a *App) daemonService(exe string) service.Daemon {
 	env := map[string]string{"PATH": a.Getenv("PATH"), "HOME": a.Getenv("HOME")}
 	if a.paths.Isolated {
 		env["AGS_HOME"] = a.Getenv("AGS_HOME")
 	}
-	return launchd.Agent{Label: paths.Label, Program: []string{exe, "daemon"}, Env: env, LogPath: a.paths.DaemonLog()}
+	return service.Daemon{Program: []string{exe, "daemon"}, Env: env, LogPath: a.paths.DaemonLog()}
 }
 
 func (a *App) install(args []string) (result, error) {
@@ -84,22 +84,21 @@ func (a *App) install(args []string) (result, error) {
 		return result{}, err
 	}
 	fmt.Fprintf(&b, "linked skills %s into %s\n", strings.Join(skills, ", "), a.paths.ClaudeSkills)
-	plist := a.agent(exe).Plist()
-	if err := config.WriteFileAtomic(a.paths.Plist(), plist, 0o644); err != nil {
+	if err := config.WriteFileAtomic(a.paths.ServiceFile(), a.daemonService(exe).Definition(), 0o644); err != nil {
 		return result{}, err
 	}
-	fmt.Fprintf(&b, "wrote %s (daemon: %s daemon)\n", a.paths.Plist(), exe)
+	fmt.Fprintf(&b, "wrote %s (daemon: %s daemon)\n", a.paths.ServiceFile(), exe)
 	loaded := false
 	if a.paths.Isolated {
-		b.WriteString("AGS_HOME is set: the LaunchAgent is not loaded\n")
+		fmt.Fprintf(&b, "AGS_HOME is set: the %s is not loaded\n", service.Kind)
 	} else {
-		if err := launchd.Bootstrap(paths.Label, a.paths.Plist()); err != nil {
+		if err := service.Load(a.paths.ServiceFile()); err != nil {
 			return result{}, err
 		}
 		loaded = true
-		b.WriteString("LaunchAgent loaded\n")
+		fmt.Fprintf(&b, "%s %s loaded\n", service.Kind, service.Name)
 	}
-	return result{data: map[string]any{"plist": a.paths.Plist(), "executable": exe, "skills": skills, "loaded": loaded}, text: b.String()}, nil
+	return result{data: map[string]any{"service_file": a.paths.ServiceFile(), "executable": exe, "skills": skills, "loaded": loaded}, text: b.String()}, nil
 }
 
 func (a *App) installSkills() ([]string, error) {
@@ -155,12 +154,12 @@ func (a *App) uninstall(args []string) (result, error) {
 	}
 	var b strings.Builder
 	if !a.paths.Isolated {
-		if err := launchd.Bootout(paths.Label); err != nil {
+		if err := service.Unload(); err != nil {
 			return result{}, err
 		}
 	}
-	if err := os.Remove(a.paths.Plist()); err == nil {
-		fmt.Fprintf(&b, "removed %s\n", a.paths.Plist())
+	if err := os.Remove(a.paths.ServiceFile()); err == nil {
+		fmt.Fprintf(&b, "removed %s\n", a.paths.ServiceFile())
 	}
 	links, _ := filepath.Glob(filepath.Join(a.paths.ClaudeSkills, "ags-*"))
 	for _, link := range links {
@@ -170,7 +169,7 @@ func (a *App) uninstall(args []string) (result, error) {
 		}
 	}
 	b.WriteString("config, registry and history are kept")
-	return result{data: map[string]any{"plist": a.paths.Plist()}, text: b.String()}, nil
+	return result{data: map[string]any{"service_file": a.paths.ServiceFile()}, text: b.String()}, nil
 }
 
 func (a *App) daemon(args []string) (result, error) {
@@ -227,14 +226,14 @@ func (a *App) doctor(args []string) (result, error) {
 	add := func(name string, ok bool, format string, args ...any) {
 		checks = append(checks, check{Name: name, OK: ok, Detail: fmt.Sprintf(format, args...)})
 	}
-	if _, err := os.Stat(a.paths.Plist()); err != nil {
-		add("launchagent", false, "%s missing: run ags install", a.paths.Plist())
+	if _, err := os.Stat(a.paths.ServiceFile()); err != nil {
+		add("service", false, "%s missing: run ags install", a.paths.ServiceFile())
 	} else if a.paths.Isolated {
-		add("launchagent", true, "%s written, not loaded (AGS_HOME set)", a.paths.Plist())
-	} else if launchd.Loaded(paths.Label) {
-		add("launchagent", true, "%s loaded", paths.Label)
+		add("service", true, "%s written, not loaded (AGS_HOME set)", a.paths.ServiceFile())
+	} else if service.Loaded() {
+		add("service", true, "%s %s loaded", service.Kind, service.Name)
 	} else {
-		add("launchagent", false, "%s not loaded: run ags install", paths.Label)
+		add("service", false, "%s %s not loaded: run ags install", service.Kind, service.Name)
 	}
 	store, err := a.store()
 	if err != nil {

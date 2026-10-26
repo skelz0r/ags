@@ -7,15 +7,16 @@ description: Answer "why did this ags job not run" or "why did it fail" by readi
 
 Read before concluding; every command accepts `--json`.
 
-1. `ags doctor --json`: LaunchAgent loaded, daemon alive and its last
-   tick, machine config valid, every command's program found, every
-   project valid, config errors the daemon sees. A failing check is
+1. `ags doctor --json`: service (LaunchAgent or systemd unit) loaded,
+   daemon alive and its last tick, machine config valid, every
+   command's program found, every project valid, config errors the
+   daemon sees. A failing check is
    often the whole answer.
 2. `ags jobs --project <project> --json`: is the job there, `enabled`,
    `approved`, its schedule in words, its timezone and next run.
 3. `ags runs --job <project>/<job> --since 14d --json`: what the daemon
    decided for each occurrence:
-   - `missed` with `missed_count`: the Mac was asleep or off past
+   - `missed` with `missed_count`: the machine was asleep or off past
      `catch_up` (12h by default);
    - `skipped (unapproved)`: the shared prompt, precheck or command
      changed, `ags approve <project>/<job>` shows the diff;
@@ -28,7 +29,8 @@ Read before concluding; every command accepts `--json`.
    stderr, exit code, argv.
 5. If nothing was recorded at all: the job is new (nothing fires for
    the past), the project file is invalid (`ags validate <path>`), or
-   the daemon was not running.
+   the daemon was not running (on Linux, often a logout without
+   `loginctl enable-linger`).
 
 Propose the fix (approve, resume, correct the cron or the precheck,
 raise `catch_up` or `timeout`, fix the command in the machine config)
