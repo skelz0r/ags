@@ -57,7 +57,7 @@ func (m *Machine) Notifies(event string) bool {
 
 var defaultNotifications = Notifications{
 	On:       []string{"failed", "missed", "precheck_error", "invalid", "unapproved"},
-	Channels: []string{"macos"},
+	Channels: []string{"desktop"},
 }
 
 func LoadMachine(path string) (*Machine, Issues) {
@@ -186,8 +186,8 @@ func (m *Machine) loadNotifications(node *yaml.Node) Issues {
 		case "channels":
 			m.Notifications.Channels, err = stringList(p.value)
 			for _, ch := range m.Notifications.Channels {
-				if err == nil && ch != "macos" {
-					err = errorf("unknown channel %q, only macos is supported", ch)
+				if err == nil && ch != "desktop" && ch != "macos" {
+					err = errorf("unknown channel %q, only desktop is supported", ch)
 				}
 			}
 		default:

@@ -61,7 +61,7 @@ Read-only, one line per check, `FAIL ... -> fix: <command>`. Run it after
 - `real install`: the real config, registry and plist do not mention
   the sandbox, the real history has no `agsqa` run, the loaded `dev.ags`
   is not the sandbox binary.
-- `tests isolation`: no test calls `cli.Main`, `notify.MacOS` or
+- `tests isolation`: no test calls `cli.Main`, `notify.Desktop` or
   `paths.FromEnv`: tests go through `agstest.New(t)`.
 - `tmux`: needed for TUI captures.
 

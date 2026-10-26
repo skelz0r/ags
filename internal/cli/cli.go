@@ -124,7 +124,7 @@ func Main(args []string, openTUI func(*App) error) int {
 		Exe:     os.Executable,
 		OpenTUI: openTUI,
 	}
-	app.Notifier = notify.MacOS{Machine: func() *config.Machine {
+	app.Notifier = notify.Desktop{Machine: func() *config.Machine {
 		m, _ := config.LoadMachine(paths.FromEnv().MachineConfig())
 		return m
 	}}
