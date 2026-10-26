@@ -4,16 +4,16 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-)
 
-const Label = "dev.ags"
+	"github.com/skelz0r/ags/internal/service"
+)
 
 type Paths struct {
 	Home         string
 	Isolated     bool
 	ConfigDir    string
 	StateDir     string
-	LaunchAgents string
+	ServiceDir   string
 	ClaudeSkills string
 }
 
@@ -25,7 +25,7 @@ func Resolve(getenv func(string) string) Paths {
 			Isolated:     true,
 			ConfigDir:    filepath.Join(root, "config"),
 			StateDir:     filepath.Join(root, "state"),
-			LaunchAgents: filepath.Join(root, "LaunchAgents"),
+			ServiceDir:   filepath.Join(root, service.IsolatedDir),
 			ClaudeSkills: filepath.Join(root, "claude-skills"),
 		}
 	}
@@ -34,7 +34,7 @@ func Resolve(getenv func(string) string) Paths {
 		Home:         home,
 		ConfigDir:    filepath.Join(home, ".config", "ags"),
 		StateDir:     filepath.Join(home, ".local", "state", "ags"),
-		LaunchAgents: filepath.Join(home, "Library", "LaunchAgents"),
+		ServiceDir:   service.Dir(home, filepath.Join(home, ".config")),
 		ClaudeSkills: filepath.Join(home, ".claude", "skills"),
 	}
 }
@@ -52,7 +52,7 @@ func (p Paths) History() string       { return filepath.Join(p.StateDir, "histor
 func (p Paths) DaemonLog() string     { return filepath.Join(p.StateDir, "daemon.log") }
 func (p Paths) DaemonLock() string    { return filepath.Join(p.StateDir, "daemon.lock") }
 func (p Paths) SkillsCopy() string    { return filepath.Join(p.StateDir, "skills") }
-func (p Paths) Plist() string         { return filepath.Join(p.LaunchAgents, Label+".plist") }
+func (p Paths) ServiceFile() string   { return filepath.Join(p.ServiceDir, service.File) }
 
 func ExpandHome(path, home string) string {
 	if path == "~" {
