@@ -56,6 +56,9 @@ func (a *App) daemonService(exe string) service.Daemon {
 	env := map[string]string{"PATH": a.Getenv("PATH"), "HOME": a.Getenv("HOME")}
 	if a.paths.Isolated {
 		env["AGS_HOME"] = a.Getenv("AGS_HOME")
+	} else {
+		env["XDG_CONFIG_HOME"] = filepath.Dir(a.paths.ConfigDir)
+		env["XDG_STATE_HOME"] = filepath.Dir(a.paths.StateDir)
 	}
 	return service.Daemon{Program: []string{exe, "daemon"}, Env: env, LogPath: a.paths.DaemonLog()}
 }
