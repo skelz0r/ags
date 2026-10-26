@@ -1,13 +1,14 @@
 <h1 align="center">ags</h1>
 
 <p align="center">
-  <b>Recurring work for coding agents, scheduled per project, on your Mac.</b><br>
-  A launchd daemon, a CLI and a TUI, in a single Go binary.
+  <b>Recurring work for coding agents, scheduled per project, on your machine.</b><br>
+  A daemon (launchd on macOS, systemd on Linux), a CLI and a TUI, in a single Go binary.
 </p>
 
 > [!WARNING]
 > **Work in progress.** A personal tool, built for my own use on macOS
-> (launchd) and not tested anywhere else. File formats and commands can
+> (launchd); Linux (systemd user service) works too but is tested less.
+> File formats and commands can
 > still change from one commit to the next, and there is no promise of
 > support: issues and pull requests are read, not guaranteed an answer.
 
@@ -19,11 +20,11 @@ trace of what happened.
 
 That is what ags (agents-scheduler) does. Each project describes its jobs (a name, a cron
 schedule, a prompt) in a versioned `.ags.yml`. A daemon started by
-launchd reads every registered project and, when a job is due, runs a
-command of your choice with the prompt: `claude -p`, or a script that
+launchd or systemd reads every registered project and, when a job is
+due, runs a command of your choice with the prompt: `claude -p`, or a script that
 hands the prompt to an agent already open in a terminal. It catches up
-after the Mac slept, records every run with its output, sends a macOS
-notification when one fails, and a TUI shows all projects, jobs and
+after the machine slept, records every run with its output, sends a
+desktop notification when one fails, and a TUI shows all projects, jobs and
 runs in one place.
 
 <p align="center">
@@ -181,7 +182,7 @@ does. Monthly is often enough.
 ### Sort flaky tests from real failures
 
 Every weekday morning, a red main gets a cause. `catch_up: 3h` drops
-the run when the Mac wakes up in the afternoon: by then someone has
+the run when the laptop wakes up in the afternoon: by then someone has
 already looked.
 
 ```yaml
@@ -221,7 +222,7 @@ flowchart LR
     local[".ags.local.yml<br/>personal"]
   end
   machine["~/.config/ags/config.yml<br/>commands, preprompt"]
-  daemon["ags daemon<br/>launchd, 30 s tick"]
+  daemon["ags daemon<br/>launchd or systemd, 30 s tick"]
   cmd["command<br/>claude -p, hand-off script..."]
   runs["runs/<br/>prompt, stdout, stderr"]
   shared --> daemon
@@ -278,13 +279,14 @@ gets the default.
 - A crash means "not run", never "run twice": each job's cursor is
   saved before its command starts. One run per job at a time; an
   occurrence due while the previous one runs is recorded `skipped`.
-- One daemon, not one plist per job. Catch-up, overlap and history
+- One daemon, not one plist or timer per job. Catch-up, overlap and history
   need one place that knows every job, and launchd calendar intervals
   cannot express every cron.
 - Runs cannot schedule more work: inside a run (`AGS_RUN_ID` set),
   the commands that add, approve or trigger jobs refuse to run.
-- Go, single binary. launchd starts it with a minimal environment;
-  a binary with no runtime is the safest thing to run there.
+- Go, single binary. launchd or systemd starts it with a minimal
+  environment; a binary with no runtime is the safest thing to run
+  there.
 
 ## Compared to existing tools
 
@@ -317,18 +319,32 @@ covers two or three of these.
 
 Cloud products (Claude Code cloud tasks, GitHub Agentic Workflows,
 Cursor, Devin) run in a fresh clone, away from the local checkout, its
-tools and the agents already open on the Mac. The local scheduled
+tools and the agents already open on the machine. The local scheduled
 tasks of the Claude Code and Codex apps need the app open and keep
 their schedules in the app, not in the repo.
 
 ## Install
 
+Requires Go and macOS or Linux with systemd.
+
 ```sh
 go install ./cmd/ags
-ags install          # LaunchAgent dev.ags, skills, starter ~/.config/ags/config.yml
+ags install          # service, skills, starter ~/.config/ags/config.yml
 ags add ~/work/repo  # shows the shared jobs and asks to approve them
 ags doctor
 ```
+
+`ags install` writes and loads the service that keeps the daemon
+running, with the `PATH` of the shell it runs from:
+
+- macOS: the LaunchAgent `~/Library/LaunchAgents/dev.ags.plist`.
+- Linux: the systemd user unit `~/.config/systemd/user/ags.service`,
+  enabled and started (`systemctl --user status ags`). A user's
+  systemd stops at logout: run `loginctl enable-linger` once so the
+  daemon keeps running without a session and starts at boot.
+  Notifications go through `notify-send` when it is installed.
+
+`XDG_CONFIG_HOME` and `XDG_STATE_HOME` are honoured on both.
 
 Shell completion of commands, flags, projects, jobs and runs, in
 `~/.zshrc` after `compinit`:
@@ -370,12 +386,12 @@ agent instead of editing YAML:
 - `ags-doctor`: why a job did not run, ran late or failed.
 
 Set `AGS_HOME=/tmp/ags-try` to experiment without touching the real
-config, state or LaunchAgent.
+config, state or service: it is written there, never loaded.
 
 ## Out of scope
 
 Following the agent after the command exits, worktrees, sandboxing,
-event triggers, remote machines, Linux and Windows, waking the Mac.
+event triggers, remote machines, Windows, waking the machine.
 The command, or the agent it starts, handles what it needs to.
 
 ## Documentation
