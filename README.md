@@ -31,6 +31,33 @@ runs in one place.
   <img src="docs/screenshots/tui-jobs.png" width="820" alt="TUI: the jobs of a project with their schedule in words, origin, next run and last status">
 </p>
 
+## TL;DR
+
+Paste this in a coding agent opened in one of your repositories to
+see whether ags is worth it there:
+
+```text
+Read the README and docs/spec.md of https://github.com/skelz0r/ags.
+Then look at this repository: its history, CI, issues, scripts and
+conventions. List the recurring chores an agent could run here on a
+schedule with ags, each as a .ags.yml job (schedule, prompt,
+precheck), and the ones not worth scheduling, with why. Do not
+install or change anything.
+```
+
+Paste this one to install it (Go, and macOS or Linux with systemd):
+
+```text
+Install ags from https://github.com/skelz0r/ags on this machine: run
+`go install github.com/skelz0r/ags/cmd/ags@latest`, then
+`ags install` (the launchd or systemd service, the ags-config,
+ags-run and ags-doctor Claude Code skills, a starter config) and
+`ags doctor`. Show me the generated config and fix what doctor
+reports. On Linux, ask me before running `loginctl enable-linger`.
+Then run `ags add .` without --approve and show me the shared jobs
+of this repository before I approve them myself.
+```
+
 ## Highlights
 
 - **Jobs live with the code.** `.ags.yml` is versioned with the repo,
