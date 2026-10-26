@@ -11,6 +11,11 @@ the loaded `dev.ags`) is never written: every QA command goes through
 the sandbox wrapper `tmp/qa/sandbox/ags`, never through a bare `ags`
 (the one in PATH is the real install).
 
+macOS only: the doctor's real-install check reads the LaunchAgent and
+the default `~/.config` and `~/.local/state`, with no `XDG_*` set. On
+Linux, or with XDG variables set, it does not prove isolation: check
+by hand, or test in a disposable VM.
+
 ## Launch
 
 ```sh

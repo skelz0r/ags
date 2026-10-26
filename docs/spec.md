@@ -1,6 +1,6 @@
 # ags: specification
 
-A small personal scheduler for coding agents on a Mac. Register
+A small personal scheduler for coding agents on macOS and Linux. Register
 projects, give each one jobs (a name, a schedule, a prompt), and a
 daemon runs a command with that prompt at the right time. A TUI lists
 every project and its jobs; a CLI and a few Claude Code skills let an
@@ -33,14 +33,17 @@ preprompt) and an unversioned `.ags.local.yml`.
 - **Shared intent, personal setup.** The versioned project file is
   agnostic of the developer's stack; preprompts and the local file
   adapt it to one machine.
-- **Go**, single binary: launchd runs it with a minimal environment, a
-  binary without runtime is the safest thing there. `robfig/cron/v3`
+- **Go**, single binary: launchd or systemd runs it with a minimal
+  environment, a binary without runtime is the safest thing there. `robfig/cron/v3`
   for cron with timezones, `yaml.v3` for line numbers in errors and
   comment-preserving edits, bubbletea for the TUI.
-- **One launchd agent, one long-lived daemon** reading every registered
-  project, rather than one plist per job: catch-up, overlap and history
-  need one place that knows every job, and launchd calendar intervals
-  cannot express every cron.
+- **One service, one long-lived daemon** reading every registered
+  project, rather than one launchd agent or systemd timer per job:
+  catch-up, overlap and history need one place that knows every job,
+  and launchd calendar intervals cannot express every cron.
+- **macOS and Linux**: the service is a launchd LaunchAgent on macOS
+  and a systemd user unit on Linux, picked at build time; the rest of
+  the tool is the same POSIX code on both.
 - **A standalone TUI** for now; a herdr plugin (board overlay, run now)
   can come later on top of the same CLI.
 
@@ -65,13 +68,27 @@ preprompt) and an unversioned `.ags.local.yml`.
 | `~/.config/ags/config.yml` | commands, default command, preprompt, notifications | in the dotfiles if wanted |
 | `~/.config/ags/projects.yml` | registry of projects (written by the CLI and TUI) | no |
 | `~/.local/state/ags/` | `state.json` (cursors, approved jobs), `runs/`, `history.jsonl`, `daemon.log`, `daemon.lock` | no |
-| `~/Library/LaunchAgents/dev.ags.plist` | the launchd agent, written by `ags install` | no |
+| `~/Library/LaunchAgents/dev.ags.plist` | macOS: the launchd agent, written by `ags install` | no |
+| `~/.config/systemd/user/ags.service` | Linux: the systemd user unit, written by `ags install` | no |
+
+`XDG_CONFIG_HOME` and `XDG_STATE_HOME`, when set to an absolute path,
+replace `~/.config` and `~/.local/state` above, the systemd unit
+included. `ags install` writes the resolved config and state bases
+into the service's environment as `XDG_CONFIG_HOME` and
+`XDG_STATE_HOME`, so the daemon reads the same files as the CLI at
+install time, whatever the service manager's own environment; on
+Linux the unit is enabled by its path, so it is found even outside
+the manager's search path. To change these variables afterwards, run
+`ags uninstall` with the old values, then `ags install` with the new
+ones: the daemon keeps the directories of its install, and a unit
+left at the old place blocks the new one.
 
 `AGS_HOME`, when set, moves everything under one directory, for tests
 and experiments: `$AGS_HOME/config` (config and registry),
-`$AGS_HOME/state`, `$AGS_HOME/LaunchAgents` and
-`$AGS_HOME/claude-skills`. `ags install` then writes the plist (with
-`AGS_HOME` in its environment) but does not load it.
+`$AGS_HOME/state`, `$AGS_HOME/LaunchAgents` (macOS) or
+`$AGS_HOME/systemd` (Linux) and `$AGS_HOME/claude-skills`.
+`ags install` then writes the service file (with `AGS_HOME` in its
+environment) but never loads it.
 
 ## Machine config
 
@@ -94,14 +111,17 @@ commands:
 
 notifications:
   on: [failed, missed, precheck_error, invalid, unapproved]
-  channels: [macos]
+  channels: [desktop]
 
 precheck_timeout: 60s
 ```
 
 `notifications.on` takes `failed`, `missed`, `precheck_error`,
 `invalid` (a config error) and `unapproved`; all of them by default.
-`precheck_timeout` defaults to 60 s. Durations are written `30s`,
+`channels` takes `desktop` (a macOS notification through `osascript`,
+on Linux `notify-send`, silently nothing when it is not installed;
+`macos` is an older name for it) or nothing, `[]`, to turn
+notifications off. `precheck_timeout` defaults to 60 s. Durations are written `30s`,
 `45m`, `12h` or `2d`.
 
 `handoff` stands for any script that gives the prompt to an agent
@@ -288,13 +308,14 @@ usage.
   the diff of unapproved jobs and approve them. `--fingerprints` (given
   by the `pending` list of a previous call) refuses if the content
   changed since it was reviewed; the TUI always passes it.
-- `ags install`, `ags uninstall`: LaunchAgent (with the PATH of the
-  installing shell) and skills linked into `~/.claude/skills`. The
+- `ags install`, `ags uninstall`: the service (LaunchAgent on macOS,
+  systemd user unit on Linux, with the PATH of the installing shell)
+  and skills linked into `~/.claude/skills`. The
   skills are embedded in the binary and copied to `skills/` in the
   state directory, which the links point to. `install` also writes a
   starter machine config when there is none.
-- `ags daemon`: the foreground loop launchd runs.
-- `ags doctor`: LaunchAgent loaded, daemon alive, last tick, every
+- `ags daemon`: the foreground loop the service runs.
+- `ags doctor`: service loaded (running, on Linux), daemon alive, last tick, every
   project path present and its files valid, every command's program
   found.
 - `ags completion zsh`: prints the zsh completion script. Bash is
@@ -320,8 +341,13 @@ Error codes: `usage`, `invalid_config` (both exit 2), `not_found`,
 
 ## Daemon
 
-- launchd `RunAtLoad` and `KeepAlive`; single instance through `flock`
-  on `daemon.lock`.
+- launchd `RunAtLoad` and `KeepAlive` on macOS; on Linux a `simple`
+  systemd user unit, `Restart=always` (10 s apart), enabled for
+  `default.target`, its stdout and stderr appended to `daemon.log`.
+  Single instance through `flock` on `daemon.lock`.
+- A systemd user manager stops at logout unless lingering is on:
+  `loginctl enable-linger` keeps the daemon running without a session,
+  across reboots.
 - A tick every 30 s on the wall clock (macOS suspends monotonic timers
   during sleep). Each tick reloads the registry and any project or
   local file whose mtime changed, fires due jobs, reaps finished
@@ -384,7 +410,7 @@ Error codes: `usage`, `invalid_config` (both exit 2), `not_found`,
 - Keeps the last 100 runs per job; older run directories are deleted
   once a day.
 - Notifications on `failed`, `missed`, `precheck_error` and config
-  errors, through macOS notifications; one notification per distinct
+  errors, through desktop notifications; one notification per distinct
   error, not per tick. A succeeded run does not notify.
 
 ## Skills
@@ -454,9 +480,9 @@ What the tool guarantees, and nothing more:
   prompt is handed to).
 - Permission profiles, sandboxing, outputs
   applied by the tool.
-- Event triggers, remote machines, Linux and Windows.
+- Event triggers, remote machines, Windows.
 - Jitter, global concurrency tuning, quota-aware scheduling, waking the
-  Mac.
+  machine.
 - A herdr plugin (board, run-now action): later, on top of the CLI.
 - Any personal dispatcher or hand-off script: it is a command like any
   other, maintained outside this project.
