@@ -30,13 +30,22 @@ func Resolve(getenv func(string) string) Paths {
 		}
 	}
 	home := getenv("HOME")
+	configHome := xdg(getenv("XDG_CONFIG_HOME"), filepath.Join(home, ".config"))
+	stateHome := xdg(getenv("XDG_STATE_HOME"), filepath.Join(home, ".local", "state"))
 	return Paths{
 		Home:         home,
-		ConfigDir:    filepath.Join(home, ".config", "ags"),
-		StateDir:     filepath.Join(home, ".local", "state", "ags"),
-		ServiceDir:   service.Dir(home, filepath.Join(home, ".config")),
+		ConfigDir:    filepath.Join(configHome, "ags"),
+		StateDir:     filepath.Join(stateHome, "ags"),
+		ServiceDir:   service.Dir(home, configHome),
 		ClaudeSkills: filepath.Join(home, ".claude", "skills"),
 	}
+}
+
+func xdg(value, fallback string) string {
+	if filepath.IsAbs(value) {
+		return value
+	}
+	return fallback
 }
 
 func FromEnv() Paths {
