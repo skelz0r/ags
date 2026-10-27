@@ -243,8 +243,11 @@ func RunDetailText(v RunView, prompt, precheck, stdout, stderr string) string {
 	if v.EndedAt != nil {
 		fmt.Fprintf(&b, "ended     %s (%s)\n", v.EndedAt.Local().Format(time.RFC3339), time.Duration(v.DurationSeconds*float64(time.Second)).Round(time.Millisecond))
 	}
-	if v.Command != "" {
+	switch {
+	case len(v.Argv) > 0:
 		fmt.Fprintf(&b, "command   %s: %s\n", v.Command, quoteArgv(v.Argv))
+	case v.Command != "":
+		fmt.Fprintf(&b, "command   %s\n", v.Command)
 	}
 	if v.ExitCode != nil {
 		fmt.Fprintf(&b, "exit      %d\n", *v.ExitCode)
