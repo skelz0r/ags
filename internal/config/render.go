@@ -16,6 +16,7 @@ type RunContext struct {
 	ScheduledFor   time.Time
 	LateBy         time.Duration
 	JobStateDir    string
+	LastSuccessAt  time.Time
 	PrecheckOutput string
 }
 
@@ -86,5 +87,13 @@ func RunEnv(p *Project, j *Job, rc RunContext) []string {
 		"AGS_SCHEDULED_FOR=" + rc.ScheduledFor.In(p.Location).Format(time.RFC3339),
 		"AGS_TRIGGER=" + rc.Trigger,
 		"AGS_JOB_STATE_DIR=" + rc.JobStateDir,
+		"AGS_LAST_SUCCESS_AT=" + formatLastSuccess(rc.LastSuccessAt),
 	}
+}
+
+func formatLastSuccess(t time.Time) string {
+	if t.IsZero() {
+		return ""
+	}
+	return t.UTC().Format(time.RFC3339)
 }

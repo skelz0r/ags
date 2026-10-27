@@ -32,6 +32,7 @@ type ConfigError struct {
 type State struct {
 	Cursors         map[string]time.Time   `json:"cursors"`
 	CursorSchedules map[string]string      `json:"cursor_schedules"`
+	LastSuccess     map[string]time.Time   `json:"last_success"`
 	Approvals       map[string]Approval    `json:"approvals"`
 	Notified        map[string]string      `json:"notified"`
 	ConfigErrors    map[string]ConfigError `json:"config_errors"`
@@ -45,6 +46,9 @@ func (s *State) init() {
 	}
 	if s.CursorSchedules == nil {
 		s.CursorSchedules = map[string]string{}
+	}
+	if s.LastSuccess == nil {
+		s.LastSuccess = map[string]time.Time{}
 	}
 	if s.Approvals == nil {
 		s.Approvals = map[string]Approval{}
