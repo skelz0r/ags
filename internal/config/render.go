@@ -8,11 +8,14 @@ import (
 	"github.com/skelz0r/ags/internal/paths"
 )
 
+const PrecheckOutputPlaceholder = "{precheck.output}"
+
 type RunContext struct {
-	ID           string
-	Trigger      string
-	ScheduledFor time.Time
-	LateBy       time.Duration
+	ID             string
+	Trigger        string
+	ScheduledFor   time.Time
+	LateBy         time.Duration
+	PrecheckOutput string
 }
 
 func RenderPrompt(m *Machine, p *Project, j *Job, rc RunContext) string {
@@ -21,6 +24,7 @@ func RenderPrompt(m *Machine, p *Project, j *Job, rc RunContext) string {
 		"{job.name}", j.Name,
 		"{run.scheduled_for}", rc.ScheduledFor.In(p.Location).Format(time.RFC3339),
 		"{run.late_by}", FormatDuration(rc.LateBy),
+		PrecheckOutputPlaceholder, rc.PrecheckOutput,
 	).Replace(j.Prompt)
 	var parts []string
 	for _, part := range []string{m.Preprompt, p.Preprompt, p.LocalPreprompt, templated} {
