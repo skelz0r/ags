@@ -169,8 +169,8 @@ func (rn *Runner) fail(run *state.Run, reason string) *state.Run {
 func (rn *Runner) finish(run *state.Run) *state.Run {
 	now := rn.Now()
 	run.EndedAt = &now
-	rn.Store.SaveRun(run)
-	return run
+	entry, _ := rn.Store.Record(run)
+	return entry
 }
 
 func (rn *Runner) notify(event string, run *state.Run, message string) {

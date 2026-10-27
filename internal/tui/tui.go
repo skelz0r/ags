@@ -545,7 +545,7 @@ func (m *model) jobsView() string {
 	for _, j := range m.jobs {
 		last := "-"
 		if j.LastRun != nil {
-			last = j.LastRun.ScheduledFor.Local().Format("01-02 15:04") + " " + cli.StatusLabel(j.LastRun.Status, j.LastRun.Reason)
+			last = j.LastRun.LastScheduled().Local().Format("01-02 15:04") + " " + cli.StatusLabel(j.LastRun.Status, j.LastRun.Reason)
 		}
 		next := "-"
 		if len(j.Next) > 0 {
@@ -583,10 +583,6 @@ func (m *model) runsView() string {
 	}
 	var rows []string
 	for _, r := range m.runs {
-		label := cli.StatusLabel(r.Status, r.Reason)
-		if r.MissedCount > 0 {
-			label = fmt.Sprintf("missed x%d", r.MissedCount)
-		}
 		duration, exit := "-", "-"
 		if r.EndedAt != nil && r.StartedAt != nil {
 			duration = time.Duration(r.DurationSeconds * float64(time.Second)).Round(time.Second).String()
@@ -594,9 +590,9 @@ func (m *model) runsView() string {
 		if r.ExitCode != nil {
 			exit = fmt.Sprint(*r.ExitCode)
 		}
-		rows = append(rows, fmt.Sprintf("%-16s %-30s %-9s %-24s %-9s %s", r.ScheduledFor.Local().Format("01-02 15:04:05"), trunc(r.Project+"/"+r.Job, 30), orDash(r.Trigger), trunc(label, 24), duration, exit))
+		rows = append(rows, fmt.Sprintf("%-16s %-30s %-9s %-28s %-9s %s", r.LastScheduled().Local().Format("01-02 15:04:05"), trunc(r.Project+"/"+r.Job, 30), orDash(r.Trigger), trunc(r.Label(), 28), duration, exit))
 	}
-	header := fmt.Sprintf("%-16s %-30s %-9s %-24s %-9s %s", "TIME", "JOB", "TRIGGER", "STATUS", "DURATION", "EXIT")
+	header := fmt.Sprintf("%-16s %-30s %-9s %-28s %-9s %s", "TIME", "JOB", "TRIGGER", "STATUS", "DURATION", "EXIT")
 	return titleStyle.Render(title) + dimStyle.Render("  enter details, esc back") + "\n" + m.table(header, rows, m.cursor[screenRuns])
 }
 

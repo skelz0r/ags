@@ -167,16 +167,13 @@ func (a *App) runs(args []string) (result, error) {
 	w := tabwriter.NewWriter(&b, 0, 0, 2, ' ', 0)
 	fmt.Fprintln(w, "RUN\tJOB\tSCHEDULED\tTRIGGER\tSTATUS\tDURATION\tEXIT")
 	for _, r := range runs {
-		views = append(views, runView(store, r))
+		v := runView(store, r)
+		views = append(views, v)
 		exit := "-"
 		if r.ExitCode != nil {
 			exit = fmt.Sprint(*r.ExitCode)
 		}
-		label := StatusLabel(r.Status, r.Reason)
-		if r.MissedCount > 0 {
-			label = fmt.Sprintf("missed x%d", r.MissedCount)
-		}
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n", r.ID, r.Key(), r.ScheduledFor.Local().Format("2006-01-02 15:04"), orDash(r.Trigger), label, durationText(r), exit)
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n", r.ID, r.Key(), v.LastScheduled().Local().Format("2006-01-02 15:04"), orDash(r.Trigger), v.Label(), durationText(r), exit)
 	}
 	w.Flush()
 	return result{data: views, text: b.String()}, nil
@@ -236,6 +233,9 @@ func RunDetailText(v RunView, prompt, precheck, stdout, stderr string) string {
 	fmt.Fprintf(&b, "trigger   %s\nscheduled %s (late by %s)\n", orDash(v.Trigger), v.ScheduledFor.Local().Format(time.RFC3339), v.LateBy)
 	if v.MissedCount > 0 {
 		fmt.Fprintf(&b, "missed    %d occurrence(s), the last at %s\n", v.MissedCount, v.MissedLast.Local().Format(time.RFC3339))
+	}
+	if v.SkippedCount > 1 {
+		fmt.Fprintf(&b, "repeated  %d occurrences, the last at %s\n", v.SkippedCount, v.SkippedLast.Local().Format(time.RFC3339))
 	}
 	if v.StartedAt != nil {
 		fmt.Fprintf(&b, "started   %s\n", v.StartedAt.Local().Format(time.RFC3339))

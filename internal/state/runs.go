@@ -36,8 +36,9 @@ const (
 	TriggerCatchUp  = "catch_up"
 	TriggerManual   = "manual"
 
-	OutputLimit = 64 * 1024
-	KeepPerJob  = 100
+	OutputLimit      = 64 * 1024
+	KeepPerJob       = 100
+	previousLookBack = 10
 )
 
 type Run struct {
@@ -51,6 +52,8 @@ type Run struct {
 	LateBySeconds int64      `json:"late_by_seconds"`
 	MissedCount   int        `json:"missed_count,omitempty"`
 	MissedLast    *time.Time `json:"missed_last,omitempty"`
+	SkippedCount  int        `json:"skipped_count,omitempty"`
+	SkippedLast   *time.Time `json:"skipped_last,omitempty"`
 	StartedAt     *time.Time `json:"started_at,omitempty"`
 	EndedAt       *time.Time `json:"ended_at,omitempty"`
 	Command       string     `json:"command,omitempty"`
@@ -72,6 +75,18 @@ func (r *Run) Terminal() bool { return r.Status != StatusRunning }
 
 func (r *Run) Ran() bool { return r.Status != StatusSkipped && r.Status != StatusMissed }
 
+func (r *Run) LastScheduled() time.Time {
+	if r.SkippedLast != nil {
+		return *r.SkippedLast
+	}
+	return r.ScheduledFor
+}
+
+func (r *Run) repeats(prev *Run) bool {
+	return r.Status == StatusSkipped && prev.Status == r.Status && prev.Reason == r.Reason &&
+		r.Trigger != TriggerManual && prev.Trigger != TriggerManual
+}
+
 func (r *Run) Key() string { return r.Project + "/" + r.Job }
 
 var historyMu sync.Mutex
@@ -87,6 +102,72 @@ func (s *Store) RunDir(r *Run) string {
 }
 
 func (s *Store) SaveRun(r *Run) error {
+	var prev *Run
+	if r.Terminal() {
+		prev, _ = s.previous(r)
+	}
+	return s.save(r, prev)
+}
+
+func (s *Store) Record(r *Run) (*Run, error) {
+	prev, followed := s.previous(r)
+	if prev == nil || !r.repeats(prev) {
+		return r, s.save(r, prev)
+	}
+	if err := os.RemoveAll(s.RunDir(r)); err != nil {
+		return r, s.save(r, prev)
+	}
+	prev.SkippedCount = max(prev.SkippedCount, 1) + 1
+	last := r.ScheduledFor
+	prev.SkippedLast = &last
+	if err := s.writeRun(prev); err != nil {
+		return r, s.save(r, prev)
+	}
+	if followed {
+		return prev, s.appendHistory(prev)
+	}
+	return prev, nil
+}
+
+func (s *Store) previous(r *Run) (prev *Run, followed bool) {
+	jobDir := filepath.Join(s.Paths.RunsDir(), r.Project, r.Job)
+	entries, _ := os.ReadDir(jobDir)
+	for i, seen := len(entries)-1, 0; i >= 0 && seen < previousLookBack; i-- {
+		if !entries[i].IsDir() || entries[i].Name() == r.ID {
+			continue
+		}
+		e, err := readRun(filepath.Join(jobDir, entries[i].Name(), "run.json"))
+		if err != nil {
+			continue
+		}
+		if !e.LastScheduled().Before(r.ScheduledFor) {
+			followed = true
+			continue
+		}
+		seen++
+		if prev == nil || e.LastScheduled().After(prev.LastScheduled()) {
+			prev = e
+		}
+	}
+	return prev, followed
+}
+
+func (s *Store) save(r, prev *Run) error {
+	if err := s.writeRun(r); err != nil {
+		return err
+	}
+	if !r.Terminal() {
+		return nil
+	}
+	if prev != nil && prev.SkippedCount > 0 {
+		if err := s.appendHistory(prev); err != nil {
+			return err
+		}
+	}
+	return s.appendHistory(r)
+}
+
+func (s *Store) writeRun(r *Run) error {
 	dir := s.RunDir(r)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return err
@@ -95,13 +176,7 @@ func (s *Store) SaveRun(r *Run) error {
 	if err != nil {
 		return err
 	}
-	if err := config.WriteFileAtomic(filepath.Join(dir, "run.json"), append(data, '\n'), 0o600); err != nil {
-		return err
-	}
-	if r.Terminal() {
-		return s.appendHistory(r)
-	}
-	return nil
+	return config.WriteFileAtomic(filepath.Join(dir, "run.json"), append(data, '\n'), 0o600)
 }
 
 func (s *Store) WriteRunFile(r *Run, name string, data []byte) error {
@@ -146,7 +221,7 @@ func (f Filter) match(r *Run) bool {
 	case f.Project != "" && r.Project != f.Project,
 		f.Job != "" && r.Job != f.Job,
 		f.Status != "" && r.Status != f.Status && r.Status+" ("+r.Reason+")" != f.Status,
-		!f.Since.IsZero() && r.ScheduledFor.Before(f.Since):
+		!f.Since.IsZero() && r.LastScheduled().Before(f.Since):
 		return false
 	}
 	return true
@@ -175,8 +250,8 @@ func (s *Store) ListRuns(f Filter) ([]*Run, error) {
 		}
 	}
 	sort.Slice(runs, func(i, j int) bool {
-		if !runs[i].ScheduledFor.Equal(runs[j].ScheduledFor) {
-			return runs[i].ScheduledFor.After(runs[j].ScheduledFor)
+		if a, b := runs[i].LastScheduled(), runs[j].LastScheduled(); !a.Equal(b) {
+			return a.After(b)
 		}
 		return runs[i].ID > runs[j].ID
 	})

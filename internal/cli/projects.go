@@ -321,7 +321,7 @@ func (a *App) jobs(args []string) (result, error) {
 			}
 			last := "-"
 			if j.LastRun != nil {
-				last = j.LastRun.ScheduledFor.Local().Format("01-02 15:04") + " " + StatusLabel(j.LastRun.Status, j.LastRun.Reason)
+				last = j.LastRun.LastScheduled().Local().Format("01-02 15:04") + " " + StatusLabel(j.LastRun.Status, j.LastRun.Reason)
 			}
 			fmt.Fprintf(w, "%s%s\t%s\t%s\t%s\t%s\t%s\n", j.Key, flagsOf(j), j.Description, j.Command, j.Origin, next, last)
 		}
