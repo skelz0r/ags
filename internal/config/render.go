@@ -15,6 +15,7 @@ type RunContext struct {
 	Trigger        string
 	ScheduledFor   time.Time
 	LateBy         time.Duration
+	JobStateDir    string
 	PrecheckOutput string
 }
 
@@ -84,5 +85,6 @@ func RunEnv(p *Project, j *Job, rc RunContext) []string {
 		"AGS_RUN_ID=" + rc.ID,
 		"AGS_SCHEDULED_FOR=" + rc.ScheduledFor.In(p.Location).Format(time.RFC3339),
 		"AGS_TRIGGER=" + rc.Trigger,
+		"AGS_JOB_STATE_DIR=" + rc.JobStateDir,
 	}
 }

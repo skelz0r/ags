@@ -44,6 +44,9 @@ commands:
   path-and-prompt:
     argv: ["sh", "-c", "printf '%s' \"$1\"", "sh", "{project.path}|{prompt}"]
     prompt_arg: true
+  memory:
+    argv: ["sh", "-c", "cat \"$AGS_JOB_STATE_DIR/seen\""]
+    stdin: none
 notifications:
   on: [failed, missed, precheck_error, invalid, unapproved]
   channels: [desktop]
