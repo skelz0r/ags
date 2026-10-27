@@ -3,6 +3,7 @@ package agstest
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -229,15 +230,17 @@ func (w *World) TickEvery(d *daemon.Daemon, from, to time.Time, step time.Durati
 }
 
 type Run struct {
-	ID           string    `json:"id"`
-	Job          string    `json:"job"`
-	Trigger      string    `json:"trigger"`
-	Status       string    `json:"status"`
-	Reason       string    `json:"reason"`
-	ScheduledFor time.Time `json:"scheduled_for"`
-	LateBy       string    `json:"late_by"`
-	MissedCount  int       `json:"missed_count"`
-	ExitCode     *int      `json:"exit_code"`
+	ID           string     `json:"id"`
+	Job          string     `json:"job"`
+	Trigger      string     `json:"trigger"`
+	Status       string     `json:"status"`
+	Reason       string     `json:"reason"`
+	ScheduledFor time.Time  `json:"scheduled_for"`
+	LateBy       string     `json:"late_by"`
+	MissedCount  int        `json:"missed_count"`
+	SkippedCount int        `json:"skipped_count"`
+	SkippedLast  *time.Time `json:"skipped_last"`
+	ExitCode     *int       `json:"exit_code"`
 }
 
 func (w *World) Runs(filters ...string) []Run {
@@ -261,6 +264,9 @@ func Statuses(runs []Run) []string {
 		label := runs[i].Status
 		if runs[i].Reason != "" {
 			label += " (" + strings.SplitN(runs[i].Reason, ":", 2)[0] + ")"
+		}
+		if runs[i].SkippedCount > 1 {
+			label += fmt.Sprintf(" x%d", runs[i].SkippedCount)
 		}
 		out[len(runs)-1-i] = label
 	}

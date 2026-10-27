@@ -15,7 +15,9 @@ Read before concluding; every command accepts `--json`.
 2. `ags jobs --project <project> --json`: is the job there, `enabled`,
    `approved`, its schedule in words, its timezone and next run.
 3. `ags runs --job <project>/<job> --since 14d --json`: what the daemon
-   decided for each occurrence:
+   decided for each occurrence. Consecutive skips with the same reason
+   are one entry: `skipped_count` occurrences from `scheduled_for` to
+   `skipped_last`.
    - `missed` with `missed_count`: the machine was asleep or off past
      `catch_up` (12h by default);
    - `skipped (unapproved)`: the shared prompt, precheck or command

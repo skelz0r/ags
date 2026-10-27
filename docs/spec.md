@@ -243,8 +243,8 @@ machine without you seeing it.
   neither does a local override of any field.
 - Approval stores the fingerprint and the approved text in the state.
   A job never approved, or whose fingerprint changed, is `unapproved`:
-  its occurrences are recorded `skipped` (`unapproved`), with one
-  notification per change.
+  its occurrences are recorded `skipped` (`unapproved`), folded into
+  one entry, with one notification per change.
 - Approving shows the diff against the last approved version, or the
   whole job the first time.
 - `ags add` shows the project's jobs and asks to approve them (`--approve`
@@ -265,8 +265,9 @@ machine without you seeing it.
   paused and approval state. `n` new job, `e` edit (opens `$EDITOR` on the file at
   the job's line), `d` delete (with confirmation), `p` pause / resume,
   `r` run now, `A` approve (shows the diff), `enter` runs of the job.
-- **Runs**: all projects or one job, newest first: time, trigger,
-  status, duration, exit code; `enter` shows the rendered prompt, the
+- **Runs**: all projects or one job, newest first: time (the latest
+  occurrence of a folded series), trigger, status with the count of a
+  folded series (`skipped (precheck) x12`), duration, exit code; `enter` shows the rendered prompt, the
   precheck output and the command's stdout and stderr.
 - A status bar shows whether the daemon is alive and its last tick, and
   config errors with file and line.
@@ -297,7 +298,9 @@ usage.
   approved and not already running. Exits 1 when the run is `failed`
   or `precheck_error`.
 - `ags runs [--project p] [--job j] [--status s] [--since 7d]
-  [--limit 50]`, `ags show <run>` (a run id or a unique prefix)
+  [--limit 50]`, `ags show <run>` (a run id or a unique prefix). A
+  folded series of skips sorts and matches `--since` by its latest
+  occurrence.
 - `ags new <project/job> --schedule cron --prompt text [--prompt-file
   f] [--command c] [--precheck sh] [--catch-up d] [--local]`,
   `ags edit <project/job>` (`$EDITOR` at the job's line, then
@@ -404,6 +407,12 @@ Error codes: `usage`, `invalid_config` (both exit 2), `not_found`,
 - Statuses: `running`, `succeeded` (command exited 0), `failed`,
   `skipped` (`precheck`, `overlap`, `paused`, `unapproved`), `precheck_error`,
   `missed`.
+- Consecutive skips of a job with the same reason (the precheck's
+  output included) fold into one entry: it keeps the first occurrence
+  as `scheduled_for`, counts them in `skipped_count` and holds the last
+  in `skipped_last`. Any other entry, or another reason, starts a new
+  one. A manual run is never folded nor folded into. A folded
+  occurrence leaves no directory of its own.
 - A run records project, job, trigger, scheduled time, lateness, start
   and end, the command name and argv, exit code, the first 64 KiB of
   stdout and stderr, and the precheck output. A hand-off command can
@@ -411,8 +420,10 @@ Error codes: `usage`, `invalid_config` (both exit 2), `not_found`,
 - One directory per run under `runs/<project>/<job>/<run id>/`, also
   for `skipped` and `missed` entries (only `run.json` then)
   (`run.json`, `prompt.md`, `stdout`, `stderr`, `precheck.log`) and an
-  append-only `history.jsonl` at the state root. The state directory
-  is created `0700`.
+  append-only `history.jsonl` at the state root: one line per entry
+  once it ends, and for a folded series one more with its final count
+  when the next entry of the job ends it (at once when a precheck
+  folds after a later entry), so the last line of an id wins. The state directory is created `0700`.
 - Keeps the last 100 runs per job (`succeeded`, `failed`,
   `precheck_error`) and, apart, its last 100 `skipped` or `missed`
   entries, so that skips never push a run out; older directories are

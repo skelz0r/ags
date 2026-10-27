@@ -196,8 +196,9 @@ func (d *Daemon) Tick(now time.Time) error {
 	}
 	for _, dec := range decisions {
 		for _, r := range dec.records {
-			d.store.SaveRun(r)
-			d.logf("%s %s: %s %s", r.Key(), r.ScheduledFor.Format(time.RFC3339), r.Status, r.Reason)
+			if entry, _ := d.store.Record(r); entry == r {
+				d.logf("%s %s: %s %s", r.Key(), r.ScheduledFor.Format(time.RFC3339), r.Status, r.Reason)
+			}
 		}
 		for _, n := range dec.notify {
 			d.notify(n)

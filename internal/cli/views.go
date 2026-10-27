@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/skelz0r/ags/internal/config"
@@ -41,6 +42,8 @@ type RunView struct {
 	LateBy          string     `json:"late_by"`
 	MissedCount     int        `json:"missed_count,omitempty"`
 	MissedLast      *time.Time `json:"missed_last,omitempty"`
+	SkippedCount    int        `json:"skipped_count,omitempty"`
+	SkippedLast     *time.Time `json:"skipped_last,omitempty"`
 	StartedAt       *time.Time `json:"started_at,omitempty"`
 	EndedAt         *time.Time `json:"ended_at,omitempty"`
 	DurationSeconds float64    `json:"duration_seconds"`
@@ -88,6 +91,8 @@ func runView(store *state.Store, r *state.Run) RunView {
 		LateBy:          config.FormatDuration(r.LateBy()),
 		MissedCount:     r.MissedCount,
 		MissedLast:      r.MissedLast,
+		SkippedCount:    r.SkippedCount,
+		SkippedLast:     r.SkippedLast,
 		StartedAt:       r.StartedAt,
 		EndedAt:         r.EndedAt,
 		DurationSeconds: r.Duration().Seconds(),
@@ -96,6 +101,23 @@ func runView(store *state.Store, r *state.Run) RunView {
 		ExitCode:        r.ExitCode,
 		Dir:             store.RunDir(r),
 	}
+}
+
+func (v RunView) LastScheduled() time.Time {
+	if v.SkippedLast != nil {
+		return *v.SkippedLast
+	}
+	return v.ScheduledFor
+}
+
+func (v RunView) Label() string {
+	switch {
+	case v.MissedCount > 0:
+		return fmt.Sprintf("missed x%d", v.MissedCount)
+	case v.SkippedCount > 1:
+		return fmt.Sprintf("%s x%d", StatusLabel(v.Status, v.Reason), v.SkippedCount)
+	}
+	return StatusLabel(v.Status, v.Reason)
 }
 
 func StatusLabel(status, reason string) string {

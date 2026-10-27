@@ -28,8 +28,8 @@ func TestASharedJobNeverApprovedDoesNotRun(t *testing.T) {
 	w.TickEvery(d, At(19, 9, 59, 30), At(19, 10, 2, 0), 30*time.Second)
 	d.Wait()
 
-	if got := Statuses(w.Runs()); strings.Join(got, ",") != "skipped (unapproved),skipped (unapproved),skipped (unapproved)" {
-		t.Fatalf("expected every occurrence skipped (unapproved), got %v", got)
+	if got := Statuses(w.Runs()); strings.Join(got, ",") != "skipped (unapproved) x3" {
+		t.Fatalf("expected every occurrence skipped (unapproved), folded into one entry, got %v", got)
 	}
 	if w.Notes.Count("unapproved") != 1 {
 		t.Fatalf("expected one notification for the change, got %d", w.Notes.Count("unapproved"))
