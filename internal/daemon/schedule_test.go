@@ -384,6 +384,36 @@ func TestAPrecheckOutputTooLongForThePromptStopsTheRunInsteadOfLosingItsEnd(t *t
 	}
 }
 
+func TestAJobKeepsADirectoryOfItsOwnAcrossRunsSharedByPrecheckAndCommand(t *testing.T) {
+	w := New(t)
+	w.SharedFile(`version: 1
+timezone: Europe/Paris
+jobs:
+  watch:
+    schedule: "0 * * * *"
+    prompt: Watch.
+    command: memory
+    precheck: echo "$AGS_TRIGGER" >> "$AGS_JOB_STATE_DIR/seen"
+`)
+	w.Register()
+	d := w.Daemon()
+	w.TickEvery(d, At(19, 8, 59, 30), At(19, 10, 0, 30), 30*time.Second)
+	w.MustCLI("run", "proj/watch")
+
+	runs := w.Runs()
+	if got := Statuses(runs); strings.Join(got, ",") != "succeeded,succeeded,succeeded" {
+		t.Fatalf("expected three succeeded runs, got %v", got)
+	}
+	if stdout := w.Show(runs[0].ID)["stdout"]; stdout != "schedule\nschedule\nmanual\n" {
+		t.Fatalf("each run, manual ones included, should find what the previous ones left, got %q", stdout)
+	}
+	dir := filepath.Join(w.Paths.StateDir, "jobs", "proj", "watch")
+	info, err := os.Stat(dir)
+	if err != nil || info.Mode().Perm() != 0o700 {
+		t.Fatalf("expected %s readable by its owner only, got %v %v", dir, info, err)
+	}
+}
+
 func TestAPausedJobRecordsItsOccurrencesAsSkipped(t *testing.T) {
 	w := New(t)
 	w.SharedFile(weeklyAudit(""))

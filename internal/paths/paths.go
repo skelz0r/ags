@@ -57,6 +57,7 @@ func (p Paths) Registry() string      { return filepath.Join(p.ConfigDir, "proje
 func (p Paths) StateFile() string     { return filepath.Join(p.StateDir, "state.json") }
 func (p Paths) StateLock() string     { return filepath.Join(p.StateDir, "state.lock") }
 func (p Paths) RunsDir() string       { return filepath.Join(p.StateDir, "runs") }
+func (p Paths) JobsDir() string       { return filepath.Join(p.StateDir, "jobs") }
 func (p Paths) History() string       { return filepath.Join(p.StateDir, "history.jsonl") }
 func (p Paths) DaemonLog() string     { return filepath.Join(p.StateDir, "daemon.log") }
 func (p Paths) DaemonLock() string    { return filepath.Join(p.StateDir, "daemon.lock") }

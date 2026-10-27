@@ -101,6 +101,10 @@ func (s *Store) RunDir(r *Run) string {
 	return filepath.Join(s.Paths.RunsDir(), r.Project, r.Job, r.ID)
 }
 
+func (s *Store) JobStateDir(r *Run) string {
+	return filepath.Join(s.Paths.JobsDir(), r.Project, r.Job)
+}
+
 func (s *Store) SaveRun(r *Run) error {
 	var prev *Run
 	if r.Terminal() {

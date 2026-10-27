@@ -53,12 +53,15 @@ func NewRun(p *config.Project, j *config.Job, trigger string, scheduledFor, deci
 }
 
 func (rn *Runner) Context(run *state.Run) config.RunContext {
-	return config.RunContext{ID: run.ID, Trigger: run.Trigger, ScheduledFor: run.ScheduledFor, LateBy: run.LateBy()}
+	return config.RunContext{ID: run.ID, Trigger: run.Trigger, ScheduledFor: run.ScheduledFor, LateBy: run.LateBy(), JobStateDir: rn.Store.JobStateDir(run)}
 }
 
 func (rn *Runner) Execute(ctx context.Context, req Request) *state.Run {
 	run, p, j := req.Run, req.Project, req.Job
 	rc := rn.Context(run)
+	if err := os.MkdirAll(rc.JobStateDir, 0o700); err != nil {
+		return rn.fail(run, "job state directory: "+err.Error())
+	}
 	if j.Precheck != "" && !req.SkipPrecheck {
 		output, ok := rn.precheck(ctx, p, j, run, rc)
 		if !ok {

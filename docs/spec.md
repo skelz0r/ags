@@ -67,7 +67,7 @@ preprompt) and an unversioned `.ags.local.yml`.
 | `<project>/.ags.local.yml` | personal overrides and jobs | no, gitignored |
 | `~/.config/ags/config.yml` | commands, default command, preprompt, notifications | in the dotfiles if wanted |
 | `~/.config/ags/projects.yml` | registry of projects (written by the CLI and TUI) | no |
-| `~/.local/state/ags/` | `state.json` (cursors, approved jobs), `runs/`, `history.jsonl`, `daemon.log`, `daemon.lock` | no |
+| `~/.local/state/ags/` | `state.json` (cursors, approved jobs), `runs/`, `jobs/` (one directory per job, for its precheck and command), `history.jsonl`, `daemon.log`, `daemon.lock` | no |
 | `~/Library/LaunchAgents/dev.ags.plist` | macOS: the launchd agent, written by `ags install` | no |
 | `~/.config/systemd/user/ags.service` | Linux: the systemd user unit, written by `ags install` | no |
 
@@ -139,8 +139,17 @@ Command fields:
 | `timeout` | `5m` | the process is killed (SIGTERM then SIGKILL on its group) past it |
 
 Every command also gets `AGS_PROJECT`, `AGS_PROJECT_PATH`, `AGS_JOB`,
-`AGS_RUN_ID`, `AGS_SCHEDULED_FOR` and `AGS_TRIGGER` (`schedule`,
-`catch_up`, `manual`) in its environment.
+`AGS_RUN_ID`, `AGS_SCHEDULED_FOR`, `AGS_TRIGGER` (`schedule`,
+`catch_up`, `manual`) and `AGS_JOB_STATE_DIR` in its environment,
+manual runs included.
+
+`AGS_JOB_STATE_DIR` is a directory of the job kept across its runs,
+`jobs/<project>/<job>/` under the state directory, created `0700`
+before the precheck: where a precheck keeps its cursor or the ids it
+already reported. It outlives the job: deleting or renaming the job,
+or removing its project, leaves it in place, so a job put back under
+the same name finds its memory again, and a renamed one starts empty
+unless the directory is moved.
 
 ## Project config: `.ags.yml`
 
