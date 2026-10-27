@@ -38,6 +38,12 @@ commands:
     timeout: 1s
   failing:
     argv: ["sh", "-c", "echo broken >&2; exit 3"]
+  prompt-arg:
+    argv: ["sh", "-c", "printf '%s' \"$1\"", "sh", "{prompt}"]
+    prompt_arg: true
+  path-and-prompt:
+    argv: ["sh", "-c", "printf '%s' \"$1\"", "sh", "{project.path}|{prompt}"]
+    prompt_arg: true
 notifications:
   on: [failed, missed, precheck_error, invalid, unapproved]
   channels: [desktop]

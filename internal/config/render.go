@@ -42,20 +42,21 @@ type Invocation struct {
 func Invoke(m *Machine, p *Project, j *Job, rc RunContext, prompt string) Invocation {
 	cmd := m.Commands[j.CommandName]
 	home := os.Getenv("HOME")
-	placeholders := strings.NewReplacer(
+	values := []string{
 		"{project.path}", p.Dir,
 		"{project.name}", p.Name,
 		"{job.name}", j.Name,
 		"{run.id}", rc.ID,
 		"{run.scheduled_for}", rc.ScheduledFor.In(p.Location).Format(time.RFC3339),
-	)
+	}
+	placeholders := strings.NewReplacer(values...)
+	argPlaceholders := placeholders
+	if cmd.PromptArg {
+		argPlaceholders = strings.NewReplacer(append(values, "{prompt}", prompt)...)
+	}
 	argv := make([]string, len(cmd.Argv))
 	for i, arg := range cmd.Argv {
-		arg = paths.ExpandHome(arg, home)
-		if cmd.PromptArg {
-			arg = strings.ReplaceAll(arg, "{prompt}", prompt)
-		}
-		argv[i] = placeholders.Replace(arg)
+		argv[i] = argPlaceholders.Replace(paths.ExpandHome(arg, home))
 	}
 	dir := p.Dir
 	if cmd.Cwd != "" {

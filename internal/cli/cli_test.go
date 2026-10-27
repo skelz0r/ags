@@ -3,6 +3,7 @@ package cli_test
 import (
 	"encoding/json"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -256,6 +257,40 @@ jobs:
 	}
 	if runs := w.Runs(); len(runs) != 0 {
 		t.Fatalf("a dry run runs nothing, got %d runs", len(runs))
+	}
+}
+
+func TestAPromptPassedInArgvKeepsTheCommandPlaceholdersItMentions(t *testing.T) {
+	w := New(t)
+	w.SharedFile(`version: 1
+jobs:
+  a:
+    schedule: "@daily"
+    prompt: "Explain {project.path} and {run.id}."
+    command: prompt-arg
+`)
+	w.Register()
+	if res := w.MustCLI("run", "proj/a"); !strings.Contains(res.Stdout, "Explain {project.path} and {run.id}.") {
+		t.Fatalf("the prompt must reach argv as written, got %q", res.Stdout)
+	}
+}
+
+func TestAProjectPathHoldingThePromptPlaceholderStaysAsIsInArgv(t *testing.T) {
+	w := New(t)
+	w.ProjectDir = filepath.Join(w.Root, "a{prompt}b")
+	if out, err := exec.Command("git", "init", "-q", w.ProjectDir).CombinedOutput(); err != nil {
+		t.Fatalf("git init: %v %s", err, out)
+	}
+	w.SharedFile(`version: 1
+jobs:
+  a:
+    schedule: "@daily"
+    prompt: Hello.
+    command: path-and-prompt
+`)
+	w.Register()
+	if res := w.MustCLI("run", "proj/a"); !strings.Contains(res.Stdout, w.ProjectDir+"|Machine preprompt.") {
+		t.Fatalf("the project path must not get the prompt spliced in, got %q", res.Stdout)
 	}
 }
 
