@@ -370,7 +370,6 @@ func (d *Daemon) release(decisions []*decision, cause error) {
 
 func (d *Daemon) start(dec *decision) {
 	run := dec.start
-	d.logf("%s %s: started run %s (%s, late by %s)", run.Key(), run.ScheduledFor.Format(time.RFC3339), run.ID, run.Trigger, config.FormatDuration(run.LateBy()))
 	rn := &runner.Runner{Store: d.store, Machine: dec.machine, Notifier: d.opts.Notifier, Now: d.opts.Now}
 	d.wg.Add(1)
 	go func() {
@@ -389,8 +388,13 @@ func (d *Daemon) start(dec *decision) {
 			return
 		}
 		defer func() { <-d.sem }()
-		result := rn.Execute(d.ctx, runner.Request{Project: dec.project, Job: dec.job, Run: run})
-		d.logf("%s: run %s %s %s", run.Key(), run.ID, result.Status, result.Reason)
+		started := func() {
+			d.logf("%s %s: started run %s (%s, late by %s)", run.Key(), run.ScheduledFor.Format(time.RFC3339), run.ID, run.Trigger, config.FormatDuration(run.LateBy()))
+		}
+		result := rn.Execute(d.ctx, runner.Request{Project: dec.project, Job: dec.job, Run: run, OnStart: started})
+		if result == run {
+			d.logf("%s: run %s %s %s", run.Key(), run.ID, result.Status, result.Reason)
+		}
 	}()
 }
 

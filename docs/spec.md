@@ -365,6 +365,9 @@ Error codes: `usage`, `invalid_config` (both exit 2), `not_found`,
   its `timeout` is killed and the run marked `failed`.
 - On restart, runs left `running` are marked `failed` with reason
   `interrupted`.
+- `daemon.log` gets a line when a command starts (after its precheck)
+  and when an entry ends; an occurrence folded into a series of skips
+  writes nothing, so a series costs one line.
 
 ## Schedule semantics
 
