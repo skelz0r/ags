@@ -58,17 +58,17 @@ func (rn *Runner) Context(run *state.Run) config.RunContext {
 func (rn *Runner) Execute(ctx context.Context, req Request) *state.Run {
 	run, p, j := req.Run, req.Project, req.Job
 	rc := rn.Context(run)
-	prompt := config.RenderPrompt(rn.Machine, p, j, rc)
-	inv := config.Invoke(rn.Machine, p, j, rc, prompt)
-	run.Argv = inv.Argv
-	rn.Store.WriteRunFile(run, "prompt.md", []byte(prompt))
-	rn.Store.SaveRun(run)
-
 	if j.Precheck != "" && !req.SkipPrecheck {
 		if !rn.precheck(ctx, p, j, run, rc) {
 			return rn.finish(run)
 		}
 	}
+
+	prompt := config.RenderPrompt(rn.Machine, p, j, rc)
+	inv := config.Invoke(rn.Machine, p, j, rc, prompt)
+	run.Argv = inv.Argv
+	rn.Store.WriteRunFile(run, "prompt.md", []byte(prompt))
+	rn.Store.SaveRun(run)
 
 	stdout, err := os.OpenFile(filepath.Join(rn.Store.RunDir(run), "stdout"), os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o600)
 	if err != nil {

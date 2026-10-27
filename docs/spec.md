@@ -228,7 +228,9 @@ by git (`git check-ignore`).
 
 The prompt sent to the command is, separated by blank lines: the
 machine preprompt, the project preprompt, the local preprompt, then the
-job's prompt, templated. `ags run --dry-run` prints it exactly.
+job's prompt, templated. It is rendered once the precheck has passed,
+right before the command starts, so a run its precheck stopped has no
+`prompt.md`. `ags run --dry-run` prints it exactly.
 
 ## Approval of shared jobs
 
