@@ -368,6 +368,12 @@ Error codes: `usage`, `invalid_config` (both exit 2), `not_found`,
 - One cursor per job, the last occurrence decided on, persisted before
   the command starts: a crash means "not run", never "run twice".
 - A new job starts at its next occurrence; nothing fires for the past.
+- A job whose schedule or timezone changes starts again like a new
+  job: the cursor is valid only for the schedule it was computed for,
+  so it moves to the tick that sees the change, logged in
+  `daemon.log`. An occurrence of the new schedule already past neither
+  runs nor counts as `missed`, even one within `catch_up`. A change
+  made while the daemon was not ticking takes effect at its next tick.
 - On each tick the latest occurrence between the cursor and now is the
   candidate; earlier ones are recorded as a single `missed` entry with
   their count.

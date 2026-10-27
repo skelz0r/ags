@@ -37,11 +37,17 @@ func Parse(expr string, loc *time.Location) (*Schedule, error) {
 	if loc == nil {
 		loc = time.Local
 	}
-	spec, err := parser.Parse("CRON_TZ=" + loc.String() + " " + expr)
+	s := &Schedule{Expr: expr, Location: loc}
+	spec, err := parser.Parse(s.String())
 	if err != nil {
 		return nil, fmt.Errorf("invalid schedule %q: %v", expr, err)
 	}
-	return &Schedule{Expr: expr, Location: loc, spec: spec}, nil
+	s.spec = spec
+	return s, nil
+}
+
+func (s *Schedule) String() string {
+	return "CRON_TZ=" + s.Location.String() + " " + s.Expr
 }
 
 func (s *Schedule) Next(t time.Time) time.Time {
