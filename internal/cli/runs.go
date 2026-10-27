@@ -59,6 +59,9 @@ func (a *App) runJob(args []string) (result, error) {
 	if *dry {
 		rc := rn.Context(run)
 		rc.ID = "dry-run"
+		if t.job.Precheck != "" && !*skipPrecheck {
+			rc.PrecheckOutput = "[output of the precheck, not run by --dry-run]"
+		}
 		prompt := config.RenderPrompt(a.machine, t.project, t.job, rc)
 		inv := config.Invoke(a.machine, t.project, t.job, rc, prompt)
 		d := dryRun{Job: t.job.Key(), Command: t.job.CommandName, Precheck: t.job.Precheck, Prompt: prompt, Argv: inv.Argv, Cwd: inv.Dir, Stdin: inv.Command.Stdin, Timeout: inv.Command.Timeout.String(), Env: map[string]string{}, Approved: st.Approved(t.job)}

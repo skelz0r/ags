@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -59,9 +60,11 @@ func (rn *Runner) Execute(ctx context.Context, req Request) *state.Run {
 	run, p, j := req.Run, req.Project, req.Job
 	rc := rn.Context(run)
 	if j.Precheck != "" && !req.SkipPrecheck {
-		if !rn.precheck(ctx, p, j, run, rc) {
+		output, ok := rn.precheck(ctx, p, j, run, rc)
+		if !ok {
 			return rn.finish(run)
 		}
+		rc.PrecheckOutput = output
 	}
 
 	prompt := config.RenderPrompt(rn.Machine, p, j, rc)
@@ -114,19 +117,19 @@ func (rn *Runner) Execute(ctx context.Context, req Request) *state.Run {
 	}
 }
 
-func (rn *Runner) precheck(ctx context.Context, p *config.Project, j *config.Job, run *state.Run, rc config.RunContext) bool {
+func (rn *Runner) precheck(ctx context.Context, p *config.Project, j *config.Job, run *state.Run, rc config.RunContext) (string, bool) {
 	logPath := filepath.Join(rn.Store.RunDir(run), "precheck.log")
 	log, err := os.OpenFile(logPath, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o600)
 	if err != nil {
 		run.Status, run.Reason = state.StatusPrecheckError, err.Error()
-		return false
+		return "", false
 	}
 	stdoutPath := logPath + ".stdout"
 	stdout, err := os.OpenFile(stdoutPath, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o600)
 	if err != nil {
 		log.Close()
 		run.Status, run.Reason = state.StatusPrecheckError, err.Error()
-		return false
+		return "", false
 	}
 	cmd := exec.Command("/bin/sh", "-c", j.Precheck)
 	cmd.Dir = p.Dir
@@ -136,7 +139,7 @@ func (rn *Runner) precheck(ctx context.Context, p *config.Project, j *config.Job
 	result := runProcess(ctx, cmd, rn.Machine.PrecheckTimeout)
 	stdout.Close()
 	log.Close()
-	out, _ := os.ReadFile(stdoutPath)
+	out, readErr := readHead(stdoutPath, state.OutputLimit+1)
 	os.Remove(stdoutPath)
 	truncate(logPath)
 
@@ -147,8 +150,14 @@ func (rn *Runner) precheck(ctx context.Context, p *config.Project, j *config.Job
 		run.Status, run.Reason = state.StatusFailed, state.ReasonInterrupted
 	case result.timedOut:
 		run.Status, run.Reason = state.StatusPrecheckError, fmt.Sprintf("precheck timeout after %s", rn.Machine.PrecheckTimeout)
+	case *result.exitCode == 0 && !strings.Contains(j.Prompt, config.PrecheckOutputPlaceholder):
+		return "", true
+	case *result.exitCode == 0 && readErr != nil:
+		run.Status, run.Reason = state.StatusPrecheckError, "precheck output: "+readErr.Error()
+	case *result.exitCode == 0 && len(out) > state.OutputLimit:
+		run.Status, run.Reason = state.StatusPrecheckError, fmt.Sprintf("precheck output over %d KiB, the limit of %s", state.OutputLimit/1024, config.PrecheckOutputPlaceholder)
 	case *result.exitCode == 0:
-		return true
+		return strings.TrimRight(string(out), "\r\n"), true
 	case *result.exitCode == 1:
 		run.Status = state.StatusSkipped
 		run.Reason = state.ReasonPrecheck
@@ -161,7 +170,16 @@ func (rn *Runner) precheck(ctx context.Context, p *config.Project, j *config.Job
 	if run.Status == state.StatusPrecheckError {
 		rn.notify(state.StatusPrecheckError, run, run.Reason)
 	}
-	return false
+	return "", false
+}
+
+func readHead(path string, limit int64) ([]byte, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	return io.ReadAll(io.LimitReader(f, limit))
 }
 
 func (rn *Runner) fail(run *state.Run, reason string) *state.Run {

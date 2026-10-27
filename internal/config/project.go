@@ -438,6 +438,13 @@ func (l Loader) resolveJob(p *Project, shared, local *rawJob, file string) (*Job
 	}
 
 	job.Precheck = fields["precheck"].Value
+	if job.Precheck == "" && strings.Contains(job.Prompt, PrecheckOutputPlaceholder) {
+		promptKey := "prompt"
+		if job.PromptFile != "" {
+			promptKey = "prompt_file"
+		}
+		p.Warnings.add(fieldFile(promptKey), line(promptKey), "job %q: the prompt uses %s but the job has no precheck: it is replaced by nothing", job.Name, PrecheckOutputPlaceholder)
+	}
 
 	if f, ok := fields["catch_up"]; ok {
 		if f.Value == "never" {

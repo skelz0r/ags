@@ -294,6 +294,28 @@ jobs:
 	}
 }
 
+func TestADryRunShowsWhereThePrecheckOutputGoesWithoutRunningThePrecheck(t *testing.T) {
+	w := New(t)
+	w.SharedFile(`version: 1
+jobs:
+  a:
+    schedule: "@daily"
+    prompt: "Items: {precheck.output}"
+    precheck: touch ran
+`)
+	w.Register()
+	var d struct {
+		Prompt string `json:"prompt"`
+	}
+	w.MustCLI("run", "proj/a", "--dry-run", "--json").Decode(t, &d)
+	if d.Prompt != "Machine preprompt.\n\nItems: [output of the precheck, not run by --dry-run]\n" {
+		t.Fatalf("unexpected dry run prompt %q", d.Prompt)
+	}
+	if _, err := os.Stat(filepath.Join(w.ProjectDir, "ran")); err == nil {
+		t.Fatalf("a dry run must not run the precheck")
+	}
+}
+
 func TestAManualRunOfAnUnapprovedJobIsRefused(t *testing.T) {
 	w := New(t)
 	w.SharedFile("version: 1\njobs:\n  a:\n    schedule: \"@daily\"\n    prompt: A.\n")

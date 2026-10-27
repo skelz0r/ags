@@ -236,8 +236,9 @@ Long prompts go to a Markdown file of the repo, reviewed like code.
 
 `ags validate` checks both files and prints the next three occurrences
 of each job. A job can be paused with `enabled: false`, and a prompt
-can use `{project.name}`, `{job.name}`, `{run.scheduled_for}` and
-`{run.late_by}`. The full schema is in the
+can use `{project.name}`, `{job.name}`, `{run.scheduled_for}`,
+`{run.late_by}` and `{precheck.output}`, what the precheck printed.
+The full schema is in the
 [specification](docs/spec.md#project-config-agsyml).
 
 ## How it works

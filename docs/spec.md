@@ -188,8 +188,9 @@ Fields:
 | `enabled` | `true` | |
 
 Unknown keys are errors. The prompt can use `{project.name}`,
-`{job.name}`, `{run.scheduled_for}` and `{run.late_by}`; nothing else
-is templated.
+`{job.name}`, `{run.scheduled_for}`, `{run.late_by}` and
+`{precheck.output}` (see [Precheck](#precheck)); nothing else is
+templated, preprompts included.
 
 A project file holds no command, only a command name: whatever a repo
 contains, it cannot choose what program runs on the machine.
@@ -230,7 +231,8 @@ The prompt sent to the command is, separated by blank lines: the
 machine preprompt, the project preprompt, the local preprompt, then the
 job's prompt, templated. It is rendered once the precheck has passed,
 right before the command starts, so a run its precheck stopped has no
-`prompt.md`. `ags run --dry-run` prints it exactly.
+`prompt.md`. `ags run --dry-run` prints it exactly, with a marker in
+place of the precheck's output.
 
 ## Approval of shared jobs
 
@@ -290,15 +292,16 @@ usage.
 - `ags add <path> [--name slug]`, `ags remove <project>`,
   `ags projects`
 - `ags validate [path]`: schema of both files, prompt files present,
-  command names known, local file ignored, next 3 occurrences of each
-  job. Works on an unregistered path.
+  command names known, local file ignored, `{precheck.output}` only
+  where there is a precheck, next 3 occurrences of each job. Works on
+  an unregistered path.
 - `ags jobs [--project p]`: jobs of all projects, next and last run.
 - `ags next <project/job> [-n 5]`
 - `ags run <project/job> [--skip-precheck] [--dry-run]`: run now, in
   the foreground; `--dry-run` prints the precheck, the rendered prompt
-  and the exact argv without running anything. A shared job must be
-  approved and not already running. Exits 1 when the run is `failed`
-  or `precheck_error`.
+  and the exact argv without running anything, the precheck included.
+  A shared job must be approved and not already running. Exits 1 when
+  the run is `failed` or `precheck_error`.
 - `ags runs [--project p] [--job j] [--status s] [--since 7d]
   [--limit 50]`, `ags show <run>` (a run id or a unique prefix). A
   folded series of skips sorts and matches `--since` by its latest
@@ -405,7 +408,22 @@ Error codes: `usage`, `invalid_config` (both exit 2), `not_found`,
 - Exit 0: the job runs. Exit 1: `skipped` (`precheck`), its stdout kept
   as the reason. Anything else or a timeout: `precheck_error`, not run,
   notified.
-- `ags run` goes through it too unless `--skip-precheck`.
+- On exit 0 the precheck's stdout replaces `{precheck.output}` in the
+  job's prompt, so what it found (new error reports, alerts, commits)
+  travels with the run instead of through files the agent has to find
+  and claim. It goes in as printed, trailing newlines removed, never
+  templated. Past 64 KiB the run is a `precheck_error`, not run and
+  notified, rather than a run that succeeds on a list missing its end,
+  which a precheck counting from the last success would not list
+  again: a precheck prints only what the agent needs (ids, links,
+  short titles). Only a prompt that uses the
+  placeholder gets the output, and only then does its size matter;
+  `ags validate` warns about one in a job without precheck, where it
+  is replaced by nothing.
+- `ags run` goes through it too unless `--skip-precheck`, which leaves
+  `{precheck.output}` empty. `ags run --dry-run` does not run it: it
+  can have side effects, so the prompt shows a marker in place of the
+  output.
 
 ## Runs and history
 
@@ -464,6 +482,7 @@ What runs without anyone watching, and who decides it:
 | the command (the program) | you | machine config only |
 | the precheck (a shell line) | whoever can commit to the repo, or you | project or local file |
 | the prompt, then whatever the agent does with it | whoever can commit to the repo, you, and any text the agent reads | files, then issues, code, dependencies |
+| the precheck's output, inside the prompt | whatever the precheck reads | error trackers, advisories, commit messages |
 
 What follows from it:
 
@@ -478,6 +497,15 @@ What follows from it:
   credentials (gh token, SSH keys, cloud CLIs). A prompt injected
   through an issue body, a PR comment or a dependency README can make
   it push, open issues, or send files out, and nobody sees it happen.
+- **A precheck's output is outside text inside the prompt.**
+  `{precheck.output}` puts what the precheck printed (error titles,
+  advisory texts, commit messages) in the prompt of an agent holding
+  your credentials, before it has read anything itself. Approval
+  covers the prompt with its placeholder, never the output. ags adds
+  no framing around it: the text could imitate any delimiter, so a
+  fixed one would be no boundary. The prompt says the block is data,
+  never instructions, in words the approval covers, and the precheck
+  prints fields, not whole bodies.
 - **The tool does not sandbox it.** That is deliberate. Restricting the
   agent is the command's job: `claude -p` takes `--permission-mode
   dontAsk` with `--allowedTools`, `--disallowedTools`, sandbox

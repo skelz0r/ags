@@ -324,6 +324,66 @@ func TestPrecheckRunsInTheProjectWithTheRunEnvironment(t *testing.T) {
 	}
 }
 
+func TestWhatThePrecheckPrintsFillsThePromptWhereItAsksForIt(t *testing.T) {
+	w := New(t)
+	w.SharedFile(`version: 1
+timezone: Europe/Paris
+jobs:
+  audit:
+    schedule: "30 9 * * 1"
+    prompt: |
+      New items:
+      {precheck.output}
+      Triage them.
+    precheck: "printf 'item #12 {job.name}\\nitem #13\\n\\n'"
+`)
+	w.Register()
+	d := w.Daemon()
+	w.Tick(d, At(19, 9, 29, 40))
+	w.Tick(d, At(19, 9, 30, 10))
+	d.Wait()
+
+	runs := w.Runs()
+	if len(runs) != 1 || runs[0].Status != "succeeded" {
+		t.Fatalf("expected one succeeded run, got %+v", runs)
+	}
+	want := "Machine preprompt.\n\nNew items:\nitem #12 {job.name}\nitem #13\nTriage them.\n"
+	if prompt := w.Show(runs[0].ID)["prompt"]; prompt != want {
+		t.Fatalf("the precheck output goes in as printed, never templated:\n%q", prompt)
+	}
+}
+
+func TestAPrecheckOutputTooLongForThePromptStopsTheRunInsteadOfLosingItsEnd(t *testing.T) {
+	cases := []struct {
+		name   string
+		prompt string
+		status string
+		reason string
+	}{
+		{"a prompt using the output is not run", `"{precheck.output}"`, "precheck_error", "precheck output over 64 KiB, the limit of {precheck.output}"},
+		{"a prompt not using it runs", `"Audit."`, "succeeded", ""},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			w := New(t)
+			w.SharedFile(strings.Replace(weeklyAudit("    precheck: yes item | head -c 70000\n"), `"Audit, late by {run.late_by}."`, c.prompt, 1))
+			w.Register()
+			d := w.Daemon()
+			w.Tick(d, At(19, 9, 29, 40))
+			w.Tick(d, At(19, 9, 30, 10))
+			d.Wait()
+
+			runs := w.Runs()
+			if len(runs) != 1 || runs[0].Status != c.status || runs[0].Reason != c.reason {
+				t.Fatalf("expected %s (%s), got %+v", c.status, c.reason, runs)
+			}
+			if c.status == "precheck_error" && w.Notes.Count("precheck_error") != 1 {
+				t.Fatalf("an output too long for the prompt notifies")
+			}
+		})
+	}
+}
+
 func TestAPausedJobRecordsItsOccurrencesAsSkipped(t *testing.T) {
 	w := New(t)
 	w.SharedFile(weeklyAudit(""))
