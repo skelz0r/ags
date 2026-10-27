@@ -239,6 +239,7 @@ func (d *Daemon) decide(st *state.State, now time.Time) []*decision {
 	for key := range st.Cursors {
 		if !known[key] {
 			delete(st.Cursors, key)
+			delete(st.CursorSchedules, key)
 		}
 	}
 	return out
@@ -247,9 +248,16 @@ func (d *Daemon) decide(st *state.State, now time.Time) []*decision {
 func (d *Daemon) decideJob(st *state.State, p *config.Project, j *config.Job, now time.Time) *decision {
 	key := j.Key()
 	cursor, ok := st.Cursors[key]
+	previous, recorded := st.CursorSchedules[key]
+	st.CursorSchedules[key] = j.Schedule.String()
 	if !ok {
 		st.Cursors[key] = now
 		d.logf("%s: new job, first occurrence %s", key, j.Schedule.Next(now).Format(time.RFC3339))
+		return nil
+	}
+	if recorded && previous != j.Schedule.String() {
+		st.Cursors[key] = now
+		d.logf("%s: schedule changed from %q to %q, first occurrence %s", key, previous, j.Schedule.String(), j.Schedule.Next(now).Format(time.RFC3339))
 		return nil
 	}
 	due, ok := j.Schedule.Due(cursor, now)
