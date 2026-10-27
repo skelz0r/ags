@@ -53,7 +53,11 @@ func NewRun(p *config.Project, j *config.Job, trigger string, scheduledFor, deci
 }
 
 func (rn *Runner) Context(run *state.Run) config.RunContext {
-	return config.RunContext{ID: run.ID, Trigger: run.Trigger, ScheduledFor: run.ScheduledFor, LateBy: run.LateBy(), JobStateDir: rn.Store.JobStateDir(run)}
+	rc := config.RunContext{ID: run.ID, Trigger: run.Trigger, ScheduledFor: run.ScheduledFor, LateBy: run.LateBy(), JobStateDir: rn.Store.JobStateDir(run)}
+	if st, err := rn.Store.Read(); err == nil {
+		rc.LastSuccessAt = st.LastSuccess[run.Key()]
+	}
+	return rc
 }
 
 func (rn *Runner) Execute(ctx context.Context, req Request) *state.Run {
@@ -113,6 +117,7 @@ func (rn *Runner) Execute(ctx context.Context, req Request) *state.Run {
 	case result.exitCode != nil && *result.exitCode == 0:
 		run.ExitCode = result.exitCode
 		run.Status = state.StatusSucceeded
+		rn.recordSuccess(run)
 		return rn.finish(run)
 	default:
 		run.ExitCode = result.exitCode
@@ -183,6 +188,15 @@ func readHead(path string, limit int64) ([]byte, error) {
 	}
 	defer f.Close()
 	return io.ReadAll(io.LimitReader(f, limit))
+}
+
+func (rn *Runner) recordSuccess(run *state.Run) {
+	rn.Store.Update(func(st *state.State) error {
+		if run.StartedAt.After(st.LastSuccess[run.Key()]) {
+			st.LastSuccess[run.Key()] = *run.StartedAt
+		}
+		return nil
+	})
 }
 
 func (rn *Runner) fail(run *state.Run, reason string) *state.Run {

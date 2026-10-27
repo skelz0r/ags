@@ -1,6 +1,7 @@
 package daemon_test
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -411,6 +412,50 @@ jobs:
 	info, err := os.Stat(dir)
 	if err != nil || info.Mode().Perm() != 0o700 {
 		t.Fatalf("expected %s readable by its owner only, got %v %v", dir, info, err)
+	}
+}
+
+func TestEachRunKnowsWhenTheLastSucceededRunOfItsJobStarted(t *testing.T) {
+	w := New(t)
+	w.SharedFile(`version: 1
+timezone: Europe/Paris
+jobs:
+  watch:
+    schedule: "0 * * * *"
+    prompt: Watch.
+    command: last-success
+    precheck: echo "precheck since $AGS_LAST_SUCCESS_AT"
+`)
+	w.Register()
+	d := w.Daemon()
+	fail := filepath.Join(w.ProjectDir, "fail")
+	w.TickEvery(d, At(19, 8, 59, 0), At(19, 9, 59, 0), time.Minute)
+	w.Write(fail, "")
+	w.TickEvery(d, At(19, 10, 0, 0), At(19, 10, 59, 0), time.Minute)
+	os.Remove(fail)
+	w.TickEvery(d, At(19, 11, 0, 0), At(19, 11, 1, 0), time.Minute)
+	w.TickEvery(d, At(19, 12, 40, 0), At(19, 13, 0, 0), time.Minute)
+	w.Now = At(19, 13, 5, 0)
+	w.MustCLI("run", "proj/watch")
+
+	runs := w.Runs()
+	var got []string
+	for i := len(runs) - 1; i >= 0; i-- {
+		got = append(got, fmt.Sprintf("%s %s since %q", runs[i].Trigger, runs[i].Status, strings.TrimSpace(w.Show(runs[i].ID)["stdout"].(string))))
+	}
+	want := []string{
+		`schedule succeeded since ""`,
+		`schedule failed since "2026-10-19T07:00:00Z"`,
+		`schedule succeeded since "2026-10-19T07:00:00Z"`,
+		`catch_up succeeded since "2026-10-19T09:00:00Z"`,
+		`schedule succeeded since "2026-10-19T10:41:00Z"`,
+		`manual succeeded since "2026-10-19T11:00:00Z"`,
+	}
+	if strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Fatalf("expected the start of the last succeeded run, a failure leaving it and a catch-up counting from when it ran:\n%s", strings.Join(got, "\n"))
+	}
+	if log := w.Show(runs[0].ID)["precheck_log"]; log != "precheck since 2026-10-19T11:00:00Z\n" {
+		t.Fatalf("the precheck gets it too, got %q", log)
 	}
 }
 

@@ -44,6 +44,9 @@ commands:
   path-and-prompt:
     argv: ["sh", "-c", "printf '%s' \"$1\"", "sh", "{project.path}|{prompt}"]
     prompt_arg: true
+  last-success:
+    argv: ["sh", "-c", "echo \"$AGS_LAST_SUCCESS_AT\"; test ! -e fail"]
+    stdin: none
   memory:
     argv: ["sh", "-c", "cat \"$AGS_JOB_STATE_DIR/seen\""]
     stdin: none
