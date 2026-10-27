@@ -70,6 +70,8 @@ func (r *Run) Duration() time.Duration {
 
 func (r *Run) Terminal() bool { return r.Status != StatusRunning }
 
+func (r *Run) Ran() bool { return r.Status != StatusSkipped && r.Status != StatusMissed }
+
 func (r *Run) Key() string { return r.Project + "/" + r.Job }
 
 var historyMu sync.Mutex
@@ -231,12 +233,15 @@ func (s *Store) Prune(keep int) error {
 			}
 		}
 		sort.Sort(sort.Reverse(sort.StringSlice(ids)))
-		for i, id := range ids {
-			if i < keep {
-				continue
-			}
+		kept := map[bool]int{}
+		for _, id := range ids {
 			r, err := readRun(filepath.Join(jobDir, id, "run.json"))
 			if err == nil && !r.Terminal() {
+				continue
+			}
+			ran := err == nil && r.Ran()
+			if kept[ran] < keep {
+				kept[ran]++
 				continue
 			}
 			os.RemoveAll(filepath.Join(jobDir, id))

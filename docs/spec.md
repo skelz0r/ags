@@ -413,8 +413,10 @@ Error codes: `usage`, `invalid_config` (both exit 2), `not_found`,
   (`run.json`, `prompt.md`, `stdout`, `stderr`, `precheck.log`) and an
   append-only `history.jsonl` at the state root. The state directory
   is created `0700`.
-- Keeps the last 100 runs per job; older run directories are deleted
-  once a day.
+- Keeps the last 100 runs per job (`succeeded`, `failed`,
+  `precheck_error`) and, apart, its last 100 `skipped` or `missed`
+  entries, so that skips never push a run out; older directories are
+  deleted once a day, a `running` one never.
 - Notifications on `failed`, `missed`, `precheck_error` and config
   errors, through desktop notifications; one notification per distinct
   error, not per tick. A succeeded run does not notify.
