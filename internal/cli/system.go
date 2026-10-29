@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"sort"
 	"strings"
 	"syscall"
 	"time"
@@ -220,6 +221,49 @@ func DaemonAlive(st *state.State, now time.Time) (bool, string) {
 	return true, fmt.Sprintf("pid %d, last tick %s ago", st.Daemon.PID, age)
 }
 
+func brokenPrechecks(store *state.Store, now time.Time) []*state.Run {
+	runs, _ := store.ListRuns(state.Filter{})
+	since := now.Add(-7 * 24 * time.Hour)
+	latest := map[string]*state.Run{}
+	for _, r := range runs {
+		if precheckRanAt(r).Before(since) || !precheckRan(store, r) {
+			continue
+		}
+		if prev := latest[r.Key()]; prev == nil || precheckRanAt(r).After(precheckRanAt(prev)) {
+			latest[r.Key()] = r
+		}
+	}
+	var broken []*state.Run
+	for _, r := range latest {
+		if r.Status == state.StatusPrecheckError {
+			broken = append(broken, r)
+		}
+	}
+	sort.Slice(broken, func(i, j int) bool { return broken[i].Key() < broken[j].Key() })
+	return broken
+}
+
+func precheckRan(store *state.Store, r *state.Run) bool {
+	switch {
+	case r.Status == state.StatusPrecheckError, r.Status == state.StatusSkipped && strings.HasPrefix(r.Reason, state.ReasonPrecheck):
+		return true
+	case r.Status == state.StatusSucceeded, r.Status == state.StatusFailed:
+		_, err := os.Stat(filepath.Join(store.RunDir(r), "precheck.log"))
+		return err == nil
+	}
+	return false
+}
+
+func precheckRanAt(r *state.Run) time.Time {
+	switch {
+	case r.SkippedLast != nil:
+		return *r.SkippedLast
+	case r.StartedAt != nil:
+		return *r.StartedAt
+	}
+	return r.ScheduledFor
+}
+
 func (a *App) doctor(args []string) (result, error) {
 	f := newFlags("doctor")
 	if err := f.parse(args, 0, 0); err != nil {
@@ -290,6 +334,9 @@ func (a *App) doctor(args []string) (result, error) {
 	}
 	for key, e := range st.ConfigErrors {
 		add("daemon sees "+key, false, "since %s: %s", e.Since.Local().Format(time.RFC3339), e.Message)
+	}
+	for _, r := range brokenPrechecks(store, a.Now()) {
+		add("precheck "+r.Key(), false, "%s at %s: %s, see ags show %s", r.Status, precheckRanAt(r).Local().Format(time.RFC3339), r.Reason, r.ID)
 	}
 	var b strings.Builder
 	failed := 0

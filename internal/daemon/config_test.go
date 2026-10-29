@@ -107,3 +107,42 @@ func removeFile(t *testing.T, w *World, rel string) {
 		t.Fatal(err)
 	}
 }
+
+func TestDoctorReportsAJobWhosePrecheckCrashesUntilItWorksAgain(t *testing.T) {
+	w := New(t)
+	w.SharedFile(watchJob("*/5 * * * *", `if [ -f broken ]; then echo boom >&2; exit 1; fi; echo nothing new; exit 1`))
+	w.Write("broken", "")
+	w.Register()
+	d := w.Daemon()
+	w.Tick(d, At(19, 7, 59, 0))
+	w.TickEvery(d, At(19, 8, 0, 0), At(19, 8, 1, 0), time.Minute)
+
+	precheckCheck := func() string {
+		var doctor []struct {
+			Name   string `json:"name"`
+			OK     bool   `json:"ok"`
+			Detail string `json:"detail"`
+		}
+		w.CLI("doctor", "--json").Decode(t, &doctor)
+		for _, c := range doctor {
+			if c.Name == "precheck proj/watch" && !c.OK {
+				return c.Detail
+			}
+		}
+		return ""
+	}
+	if detail := precheckCheck(); !strings.Contains(detail, "precheck_error") || !strings.Contains(detail, "precheck exit 1: boom") {
+		t.Fatalf("expected doctor to report the crashing precheck, got %q", detail)
+	}
+
+	w.MustCLI("run", "proj/watch", "--skip-precheck")
+	if detail := precheckCheck(); detail == "" {
+		t.Fatalf("a run that skipped the precheck says nothing about it: doctor must still report it")
+	}
+
+	os.Remove(filepath.Join(w.ProjectDir, "broken"))
+	w.TickEvery(d, At(19, 8, 2, 0), At(19, 8, 6, 0), time.Minute)
+	if detail := precheckCheck(); detail != "" {
+		t.Fatalf("expected doctor quiet once the precheck skips normally, got %q", detail)
+	}
+}

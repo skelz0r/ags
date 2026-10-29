@@ -24,9 +24,12 @@ Read before concluding; every command accepts `--json`.
      changed, `ags approve <project>/<job>` shows the diff;
    - `skipped (paused)`: `enabled: false`, usually in `.ags.local.yml`;
    - `skipped (overlap)`: the previous run was still going;
-   - `skipped (precheck)`: the precheck exited 1, its output is the
-     reason;
-   - `precheck_error`, `failed`: read the run.
+   - `skipped (precheck)`: the precheck exited 1 with nothing on
+     stderr, its output is the reason;
+   - `precheck_error`: the precheck crashed (exit 1 with stderr, other
+     exit code, timeout, output too long): `exit_code` and the reason
+     say how, `ags show` holds its stderr in `precheck_log`;
+   - `failed`: read the run.
 4. `ags show <run id> --json`: rendered prompt, precheck output, stdout,
    stderr, exit code, argv.
 5. If nothing was recorded at all: the job is new (nothing fires for
