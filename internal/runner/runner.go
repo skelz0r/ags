@@ -126,29 +126,47 @@ func (rn *Runner) Execute(ctx context.Context, req Request) *state.Run {
 }
 
 func (rn *Runner) precheck(ctx context.Context, p *config.Project, j *config.Job, run *state.Run, rc config.RunContext) (string, bool) {
+	output, ok := rn.runPrecheck(ctx, p, j, run, rc)
+	if run.Status == state.StatusPrecheckError {
+		rn.notify(state.StatusPrecheckError, run, run.Reason)
+	}
+	return output, ok
+}
+
+func (rn *Runner) runPrecheck(ctx context.Context, p *config.Project, j *config.Job, run *state.Run, rc config.RunContext) (string, bool) {
 	logPath := filepath.Join(rn.Store.RunDir(run), "precheck.log")
-	log, err := os.OpenFile(logPath, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o600)
-	if err != nil {
-		run.Status, run.Reason = state.StatusPrecheckError, err.Error()
-		return "", false
+	stdoutPath, stderrPath := logPath+".stdout", logPath+".stderr"
+	defer os.Remove(stdoutPath)
+	defer os.Remove(stderrPath)
+	var files [3]*os.File
+	for i, path := range []string{logPath, stdoutPath, stderrPath} {
+		f, err := os.OpenFile(path, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o600)
+		if err != nil {
+			for _, opened := range files[:i] {
+				opened.Close()
+			}
+			run.Status, run.Reason = state.StatusPrecheckError, err.Error()
+			return "", false
+		}
+		files[i] = f
 	}
-	stdoutPath := logPath + ".stdout"
-	stdout, err := os.OpenFile(stdoutPath, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o600)
-	if err != nil {
-		log.Close()
-		run.Status, run.Reason = state.StatusPrecheckError, err.Error()
-		return "", false
-	}
+	log, stdout, stderr := files[0], files[1], files[2]
 	cmd := exec.Command("/bin/sh", "-c", j.Precheck)
 	cmd.Dir = p.Dir
 	cmd.Env = append(os.Environ(), config.RunEnv(p, j, rc)...)
 	cmd.Stdout = multiFile{stdout, log}
-	cmd.Stderr = log
+	cmd.Stderr = stderr
 	result := runProcess(ctx, cmd, rn.Machine.PrecheckTimeout)
 	stdout.Close()
+	stderr.Close()
+	wroteStderr := true
+	if info, err := os.Stat(stderrPath); err == nil {
+		wroteStderr = info.Size() > 0
+	}
+	errOut, _ := readHead(stderrPath, state.OutputLimit)
+	log.Write(errOut)
 	log.Close()
 	out, readErr := readHead(stdoutPath, state.OutputLimit+1)
-	os.Remove(stdoutPath)
 	truncate(logPath)
 
 	switch {
@@ -166,7 +184,7 @@ func (rn *Runner) precheck(ctx context.Context, p *config.Project, j *config.Job
 		run.Status, run.Reason = state.StatusPrecheckError, fmt.Sprintf("precheck output over %d KiB, the limit of %s", state.OutputLimit/1024, config.PrecheckOutputPlaceholder)
 	case *result.exitCode == 0:
 		return strings.TrimRight(string(out), "\r\n"), true
-	case *result.exitCode == 1:
+	case *result.exitCode == 1 && !wroteStderr:
 		run.Status = state.StatusSkipped
 		run.Reason = state.ReasonPrecheck
 		if detail := firstLines(string(out)); detail != "" {
@@ -174,10 +192,11 @@ func (rn *Runner) precheck(ctx context.Context, p *config.Project, j *config.Job
 		}
 	default:
 		run.Status, run.Reason = state.StatusPrecheckError, "precheck "+describeExit(result.exitCode)
+		if complaint := firstLine(string(errOut)); complaint != "" {
+			run.Reason += ": " + complaint
+		}
 	}
-	if run.Status == state.StatusPrecheckError {
-		rn.notify(state.StatusPrecheckError, run, run.Reason)
-	}
+	run.ExitCode = result.exitCode
 	return "", false
 }
 
@@ -286,6 +305,18 @@ func firstLines(s string) string {
 		s = s[:500] + "…"
 	}
 	return s
+}
+
+func firstLine(s string) string {
+	for _, line := range strings.Split(s, "\n") {
+		if line = strings.TrimSpace(line); line != "" {
+			if len(line) > 200 {
+				line = line[:200] + "…"
+			}
+			return line
+		}
+	}
+	return ""
 }
 
 func truncate(path string) {

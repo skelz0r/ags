@@ -252,7 +252,10 @@ func RunDetailText(v RunView, prompt, precheck, stdout, stderr string) string {
 	case v.Command != "":
 		fmt.Fprintf(&b, "command   %s\n", v.Command)
 	}
-	if v.ExitCode != nil {
+	switch {
+	case v.ExitCode != nil && len(v.Argv) == 0:
+		fmt.Fprintf(&b, "exit      %d (precheck)\n", *v.ExitCode)
+	case v.ExitCode != nil:
 		fmt.Fprintf(&b, "exit      %d\n", *v.ExitCode)
 	}
 	fmt.Fprintf(&b, "dir       %s\n", v.Dir)
