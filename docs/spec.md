@@ -454,6 +454,8 @@ Error codes: `usage`, `invalid_config` (both exit 2), `not_found`,
   in `precheck.log`, stdout first. Stderr goes to a file, not a pipe:
   a background child still holding it does not keep the precheck
   waiting, and any byte on it, a lone newline included, counts.
+  `ags doctor` fails a check for each job whose latest precheck in the
+  last 7 days was a `precheck_error`.
 - On exit 0 the precheck's stdout replaces `{precheck.output}` in the
   job's prompt, so what it found (new error reports, alerts, commits)
   travels with the run instead of through files the agent has to find
