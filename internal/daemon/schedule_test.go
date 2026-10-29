@@ -282,6 +282,9 @@ func TestPrecheckDecidesWhetherTheJobRuns(t *testing.T) {
 	}{
 		{"exit 0 runs the job", "true", "succeeded", ""},
 		{"exit 1 skips it with stdout as the reason", "echo nothing new; exit 1", "skipped", "precheck: nothing new"},
+		{"exit 1 with an empty stderr skips it", `test -n ""`, "skipped", "precheck"},
+		{"exit 1 after writing a mere newline to stderr is a precheck error", `'printf "\n" >&2; exit 1'`, "precheck_error", "precheck exit 1"},
+		{"exit 1 after writing to stderr is a precheck error, like a crashed script", `'echo "cve-watch:12: invalid byte sequence (Encoding::InvalidByteSequenceError)" >&2; echo "  from cve-watch:3" >&2; exit 1'`, "precheck_error", "precheck exit 1: cve-watch:12: invalid byte sequence (Encoding::InvalidByteSequenceError)"},
 		{"another exit code is a precheck error", "exit 2", "precheck_error", "precheck exit 2"},
 		{"a timeout is a precheck error", "sleep 5", "precheck_error", "precheck timeout after 1s"},
 	}
@@ -301,6 +304,9 @@ func TestPrecheckDecidesWhetherTheJobRuns(t *testing.T) {
 			}
 			if c.status == "precheck_error" && w.Notes.Count("precheck_error") != 1 {
 				t.Fatalf("a precheck error notifies")
+			}
+			if c.status != "succeeded" && runs[0].ExitCode == nil {
+				t.Fatalf("a run its precheck stopped records the precheck's exit code")
 			}
 			if c.status != "succeeded" {
 				if stdout := w.Show(runs[0].ID)["stdout"]; stdout != "" {
@@ -511,4 +517,40 @@ func waitForCommandStart(t *testing.T, w *World, id string) {
 		}
 	}
 	t.Fatalf("the command of run %s never started", id)
+}
+
+func TestACrashedPrecheckShowsItsExitCodeAndStacktrace(t *testing.T) {
+	w := New(t)
+	w.SharedFile(weeklyAudit(`    precheck: 'echo "boom (RuntimeError)" >&2; echo "  from bin/watch:3" >&2; exit 1'` + "\n"))
+	w.Register()
+	d := w.Daemon()
+	w.Tick(d, At(19, 9, 29, 40))
+	w.Tick(d, At(19, 9, 30, 10))
+	d.Wait()
+
+	runs := w.Runs()
+	if len(runs) != 1 || runs[0].ExitCode == nil || *runs[0].ExitCode != 1 {
+		t.Fatalf("expected exit code 1 recorded, got %+v", runs)
+	}
+	if log := w.Show(runs[0].ID)["precheck_log"]; log != "boom (RuntimeError)\n  from bin/watch:3\n" {
+		t.Fatalf("expected the stacktrace kept, got %q", log)
+	}
+	if table := w.MustCLI("runs").Stdout; !strings.Contains(table, "precheck_error") || !strings.HasSuffix(strings.TrimSpace(strings.Split(table, "\n")[1]), " 1") {
+		t.Fatalf("expected ags runs to show the exit code, got:\n%s", table)
+	}
+}
+
+func TestAPrecheckLeavingABackgroundChildOnStderrStillPasses(t *testing.T) {
+	w := New(t)
+	w.Write(w.Paths.MachineConfig(), strings.Replace(MachineConfig, "precheck_timeout: 1s", "precheck_timeout: 30s", 1))
+	w.SharedFile(weeklyAudit("    precheck: 'sleep 8 >/dev/null & exit 0'\n"))
+	w.Register()
+	d := w.Daemon()
+	w.Tick(d, At(19, 9, 29, 40))
+	w.Tick(d, At(19, 9, 30, 10))
+	d.Wait()
+
+	if got := Statuses(w.Runs()); strings.Join(got, ",") != "succeeded" {
+		t.Fatalf("expected the job to run once its precheck exited 0, got %v", got)
+	}
 }

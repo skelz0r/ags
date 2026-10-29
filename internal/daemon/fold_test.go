@@ -114,3 +114,19 @@ func TestApprovingAJobEndsItsSeriesOfUnapprovedSkips(t *testing.T) {
 		t.Fatalf("expected the series to end at 10:00, got %s", runs[1].SkippedLast)
 	}
 }
+
+func TestCrashesOfAPrecheckAreNeverFoldedLikeItsSkips(t *testing.T) {
+	w := New(t)
+	w.SharedFile(watchJob("*/5 * * * *", `echo boom >&2; exit 1`))
+	w.Register()
+	d := w.Daemon()
+	w.Tick(d, At(19, 7, 59, 0))
+	w.TickEvery(d, At(19, 8, 0, 0), At(19, 8, 10, 0), time.Minute)
+
+	if got := Statuses(w.Runs()); strings.Join(got, ",") != "precheck_error (precheck exit 1),precheck_error (precheck exit 1),precheck_error (precheck exit 1)" {
+		t.Fatalf("expected three precheck errors, got %v", got)
+	}
+	if w.Notes.Count("precheck_error") != 3 {
+		t.Fatalf("expected each crash notified, got %d", w.Notes.Count("precheck_error"))
+	}
+}

@@ -358,7 +358,8 @@ usage.
 - `ags daemon`: the foreground loop the service runs.
 - `ags doctor`: service loaded (running, on Linux), daemon alive, last tick, every
   project path present and its files valid, every command's program
-  found.
+  found, no job whose latest precheck crashed (`precheck_error` in the
+  last 7 days).
 - `ags completion zsh`: prints the zsh completion script. Bash is
   left out: its word splitting on `=` and `:` and its quoting made
   every candidate insertion a special case.
@@ -439,9 +440,20 @@ Error codes: `usage`, `invalid_config` (both exit 2), `not_found`,
 - A shell command run in the project directory, with the same `AGS_*`
   environment as the command, `AGS_JOB_STATE_DIR` and
   `AGS_LAST_SUCCESS_AT` included, timeout 60 s.
-- Exit 0: the job runs. Exit 1: `skipped` (`precheck`), its stdout kept
-  as the reason. Anything else or a timeout: `precheck_error`, not run,
-  notified.
+- Exit 0: the job runs. Exit 1 with nothing on stderr: `skipped`
+  (`precheck`), its stdout kept as the reason. Exit 1 after writing to
+  stderr, any other exit code or a timeout: `precheck_error`, not run,
+  notified, its reason the exit and the first line of stderr. Ruby,
+  Python and Node exit 1 on an uncaught exception, so without the
+  stderr rule a crashed precheck would read as "nothing to do" and
+  fold into the skips, unseen. `test -n "$x"` and the like stay skips;
+  a precheck that warns on stderr before skipping becomes an error, and
+  sends its warning to stdout, or nowhere, to skip quietly.
+- The precheck's exit code is recorded as the run's exit code whenever
+  it stops the run (skip or error), and its stdout and stderr are kept
+  in `precheck.log`, stdout first. Stderr goes to a file, not a pipe:
+  a background child still holding it does not keep the precheck
+  waiting, and any byte on it, a lone newline included, counts.
 - On exit 0 the precheck's stdout replaces `{precheck.output}` in the
   job's prompt, so what it found (new error reports, alerts, commits)
   travels with the run instead of through files the agent has to find
@@ -472,8 +484,10 @@ Error codes: `usage`, `invalid_config` (both exit 2), `not_found`,
   one. A manual run is never folded nor folded into. A folded
   occurrence leaves no directory of its own.
 - A run records project, job, trigger, scheduled time, lateness, start
-  and end, the command name and argv, exit code, the first 64 KiB of
-  stdout and stderr, and the precheck output. A hand-off command can
+  and end, the command name and argv, exit code (the precheck's when
+  the precheck stopped the run), the first 64 KiB of stdout and
+  stderr, and the precheck's stdout and stderr (`precheck.log`, first
+  64 KiB). A `precheck_error` is never folded. A hand-off command can
   print an id on stdout to link the run to whatever it handed off to.
 - One directory per run under `runs/<project>/<job>/<run id>/`, also
   for `skipped` and `missed` entries (only `run.json` then)
