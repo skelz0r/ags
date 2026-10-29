@@ -25,10 +25,21 @@ Read before concluding; every command accepts `--json`.
    - `skipped (paused)`: `enabled: false`, usually in `.ags.local.yml`;
    - `skipped (overlap)`: the previous run was still going;
    - `skipped (precheck)`: the precheck exited 1 with nothing on
-     stderr, its output is the reason;
+     stderr, its output is the reason. A series far longer than usual,
+     or skips taking much longer than the job's usual precheck, can be
+     a precheck crashing silently: recorded before ags told crashes
+     apart (no `exit_code`), or a script that rescues its exception
+     into `exit 1`. Read its `precheck_log` with `ags show`, run the
+     precheck by hand in the project;
    - `precheck_error`: the precheck crashed (exit 1 with stderr, other
-     exit code, timeout, output too long): `exit_code` and the reason
-     say how, `ags show` holds its stderr in `precheck_log`;
+     exit code, timeout, over 64 KiB of stdout for a prompt using
+     `{precheck.output}`): the reason says which. A reason
+     `precheck exit 1[: ...]` means it wrote on stderr: an uncaught
+     exception, a failing command, or a warning printed before a skip;
+     `ags show` holds its stderr in `precheck_log`, after its stdout.
+     The fix is in the precheck script (or moving its warning to
+     stdout); `ags doctor` reports the job while its latest precheck
+     within 7 days crashed;
    - `failed`: read the run.
 4. `ags show <run id> --json`: rendered prompt, precheck output, stdout,
    stderr, exit code, argv.

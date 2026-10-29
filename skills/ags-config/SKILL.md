@@ -43,16 +43,23 @@ Edit the jobs of a project registered with `ags`. The reference is
    - long prompts go to `prompt_file: .ags/<job>.md`;
    - available placeholders: `{project.name}`, `{job.name}`,
      `{run.scheduled_for}`, `{run.late_by}`, `{precheck.output}`.
-6. Add a `precheck` when a cheap shell test avoids empty runs (exit 0
-   runs the job, exit 1 skips it, stdout is kept as the reason), for
-   instance:
+6. Add a `precheck` when a cheap shell test avoids empty runs. Exit 0
+   runs the job; exit 1 with nothing on stderr skips it, stdout kept as
+   the reason; anything else (exit 1 after writing to stderr, another
+   code, a timeout, over 64 KiB of stdout when the prompt uses
+   `{precheck.output}`) is a `precheck_error`,
+   notified. So a precheck that means to skip writes nothing on stderr
+   (warnings go to stdout, a log, or nowhere), and a Ruby, Python or
+   Node script lets its exceptions escape, stacktrace on stderr, never
+   rescues them into a silent `exit 1`. For instance:
 
    ```sh
    commits=$(git log --since="${AGS_LAST_SUCCESS_AT:-7 days ago}" --oneline) && test -n "$commits"
    ```
 
-   Capture the output first: `test -n "$(git log ...)"` turns a git
-   failure into a skip instead of a `precheck_error`.
+   Capture the output first: `test -n "$(git log ...)"` makes a git
+   failure an `exit 1` that only its stderr keeps from reading as a
+   skip; `commits=$(...) &&` keeps git's own exit code.
    `AGS_LAST_SUCCESS_AT` is when the job's last succeeded run started
    (UTC, empty before the first): right after a catch-up or a failed
    run, where `7 days ago` is not. It filters on dates the items

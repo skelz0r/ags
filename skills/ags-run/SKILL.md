@@ -17,6 +17,8 @@ description: Run an ags job now and report the result - check the rendered promp
 4. Report: status (`succeeded`, `failed`, `skipped (precheck)`,
    `precheck_error`), reason, exit code, duration, and the useful part
    of stdout and stderr (`ags show <run id> --json` has them in full).
+   When the precheck stopped the run, the exit code is the precheck's
+   and its stdout and stderr are in `precheck_log`.
    A hand-off command returns at once: its stdout often holds an id of
    what it handed off to.
 
