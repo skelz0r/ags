@@ -34,7 +34,6 @@ type Request struct {
 	Job          *config.Job
 	Run          *state.Run
 	SkipPrecheck bool
-	OnStart      func()
 }
 
 func NewRun(p *config.Project, j *config.Job, trigger string, scheduledFor, decidedAt time.Time) *state.Run {
@@ -95,9 +94,6 @@ func (rn *Runner) Execute(ctx context.Context, req Request) *state.Run {
 	cmd.Stdout, cmd.Stderr = stdout, stderr
 	if inv.Command.Stdin == config.StdinPrompt {
 		cmd.Stdin = strings.NewReader(inv.Stdin)
-	}
-	if req.OnStart != nil {
-		req.OnStart()
 	}
 	result := runProcess(ctx, cmd, inv.Command.Timeout)
 	stdout.Close()

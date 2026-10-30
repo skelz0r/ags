@@ -62,6 +62,14 @@ type Run struct {
 	OwnerPID      int        `json:"owner_pid,omitempty"`
 }
 
+func (r *Run) StartedLog() string {
+	return fmt.Sprintf("%s: run %s started (%s, scheduled %s, late by %s)", r.Key(), r.ID, r.Trigger, r.ScheduledFor.Format(time.RFC3339), config.FormatDuration(r.LateBy()))
+}
+
+func (r *Run) EndedLog() string {
+	return strings.TrimSpace(fmt.Sprintf("%s: run %s %s %s", r.Key(), r.ID, r.Status, r.Reason))
+}
+
 func (r *Run) LateBy() time.Duration { return time.Duration(r.LateBySeconds) * time.Second }
 
 func (r *Run) Duration() time.Duration {

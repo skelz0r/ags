@@ -108,13 +108,24 @@ func (a *App) runJob(args []string) (result, error) {
 	if !a.json {
 		fmt.Fprintf(a.Stderr, "running %s (run %s)\n", t.job.Key(), run.ID)
 	}
+	a.logf("%s", run.StartedLog())
 	run = rn.Execute(ctx, runner.Request{Project: t.project, Job: t.job, Run: run, SkipPrecheck: *skipPrecheck})
+	a.logf("%s", run.EndedLog())
 	view := runView(store, run)
 	text := fmt.Sprintf("%s %s in %s\n%s", run.ID, StatusLabel(run.Status, run.Reason), run.Duration().Round(time.Millisecond), store.ReadRunFile(run, "stdout"))
 	if run.Status == state.StatusFailed || run.Status == state.StatusPrecheckError {
 		return result{}, &Error{Code: CodeRunFailed, Message: fmt.Sprintf("run %s %s: %s", run.ID, run.Status, run.Reason), exit: ExitError, data: view}
 	}
 	return result{data: view, text: text}, nil
+}
+
+func (a *App) logf(format string, args ...any) {
+	f, err := os.OpenFile(a.paths.DaemonLog(), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
+	if err != nil {
+		return
+	}
+	defer f.Close()
+	fmt.Fprintf(f, "%s %s\n", a.Now().Format(time.RFC3339), fmt.Sprintf(format, args...))
 }
 
 func orNone(s string) string {
