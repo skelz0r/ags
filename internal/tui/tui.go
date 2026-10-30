@@ -590,9 +590,9 @@ func (m *model) runsView() string {
 		if r.ExitCode != nil {
 			exit = fmt.Sprint(*r.ExitCode)
 		}
-		rows = append(rows, fmt.Sprintf("%-16s %-30s %-9s %-28s %-9s %s", r.LastScheduled().Local().Format("01-02 15:04:05"), trunc(r.Project+"/"+r.Job, 30), orDash(r.Trigger), trunc(r.Label(), 28), duration, exit))
+		rows = append(rows, fmt.Sprintf("%-16s %-30s %-9s %-28s %-8s %-9s %s", r.LastScheduled().Local().Format("01-02 15:04:05"), trunc(r.Project+"/"+r.Job, 30), orDash(r.Trigger), trunc(r.Label(), 28), r.ReportLabel(), duration, exit))
 	}
-	header := fmt.Sprintf("%-16s %-30s %-9s %-28s %-9s %s", "TIME", "JOB", "TRIGGER", "STATUS", "DURATION", "EXIT")
+	header := fmt.Sprintf("%-16s %-30s %-9s %-28s %-8s %-9s %s", "TIME", "JOB", "TRIGGER", "STATUS", "REPORT", "DURATION", "EXIT")
 	return titleStyle.Render(title) + dimStyle.Render("  enter details, esc back") + "\n" + m.table(header, rows, m.cursor[screenRuns])
 }
 

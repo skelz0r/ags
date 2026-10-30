@@ -24,6 +24,13 @@ commands:
   record:
     argv: ["sh", "-c", "cat; echo done"]
     timeout: 10s
+    report_within: never
+  agent:
+    argv: ["sh", "-c", "cat > /dev/null; echo handed-off"]
+    timeout: 10s
+  waiting-agent:
+    argv: ["sh", "-c", "cat > /dev/null; while [ ! -e \"$AGS_JOB_STATE_DIR/go\" ]; do sleep 0.05; done"]
+    timeout: 10s
   slow:
     argv: ["sleep", "30"]
     stdin: none
@@ -41,9 +48,11 @@ commands:
   prompt-arg:
     argv: ["sh", "-c", "printf '%s' \"$1\"", "sh", "{prompt}"]
     prompt_arg: true
+    report_within: never
   path-and-prompt:
     argv: ["sh", "-c", "printf '%s' \"$1\"", "sh", "{project.path}|{prompt}"]
     prompt_arg: true
+    report_within: never
   last-success:
     argv: ["sh", "-c", "echo \"$AGS_LAST_SUCCESS_AT\"; test ! -e fail"]
     stdin: none

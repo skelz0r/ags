@@ -266,11 +266,11 @@ func TestAPromptPassedInArgvKeepsTheCommandPlaceholdersItMentions(t *testing.T) 
 jobs:
   a:
     schedule: "@daily"
-    prompt: "Explain {project.path} and {run.id}."
+    prompt: "Explain {project.path}."
     command: prompt-arg
 `)
 	w.Register()
-	if res := w.MustCLI("run", "proj/a"); !strings.Contains(res.Stdout, "Explain {project.path} and {run.id}.") {
+	if res := w.MustCLI("run", "proj/a"); !strings.Contains(res.Stdout, "Explain {project.path}.") {
 		t.Fatalf("the prompt must reach argv as written, got %q", res.Stdout)
 	}
 }

@@ -106,3 +106,47 @@ func TestASeriesExtendedByAPrecheckEndingAfterALaterSkipKeepsItsFinalCountInHist
 		t.Fatalf("the last history line of the series should count 3 occurrences, got %d", last.SkippedCount)
 	}
 }
+
+func TestARunSavedFromAnOlderSnapshotKeepsTheLatestReport(t *testing.T) {
+	store := openStore(t)
+	at := time.Date(2026, 10, 30, 8, 0, 0, 0, time.UTC)
+	run := &state.Run{ID: state.NewRunID(at), Project: "proj", Job: "watch", Status: state.StatusRunning, ScheduledFor: at, StartedAt: &at, Argv: []string{"agent"}, AwaitsReport: true}
+	if err := store.SaveRun(run); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Report(run.ID, state.Report{Status: state.ReportBlocked, Summary: "Needs a reboot."}); err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err := store.FindRun(run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Report(run.ID, state.Report{Status: state.ReportDone, Summary: "Rebooted and patched."}); err != nil {
+		t.Fatal(err)
+	}
+
+	snapshot.Status, snapshot.Reason, snapshot.EndedAt = state.StatusFailed, state.ReasonInterrupted, &at
+	if err := store.SaveRun(snapshot); err != nil {
+		t.Fatal(err)
+	}
+
+	stored, err := store.FindRun(run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.Report == nil || stored.Report.Status != state.ReportDone {
+		t.Fatalf("expected the latest report kept in run.json, got %+v", stored.Report)
+	}
+	history, err := os.ReadFile(store.Paths.History())
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Split(strings.TrimSpace(string(history)), "\n")
+	var last state.Run
+	if err := json.Unmarshal([]byte(lines[len(lines)-1]), &last); err != nil {
+		t.Fatal(err)
+	}
+	if last.Report == nil || last.Report.Status != state.ReportDone {
+		t.Fatalf("expected the last history line to carry the latest report, got %+v", last.Report)
+	}
+}

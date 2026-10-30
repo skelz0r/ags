@@ -13,20 +13,24 @@ import (
 const (
 	DefaultCommandTimeout  = 5 * time.Minute
 	DefaultPrecheckTimeout = 60 * time.Second
+	DefaultReportWithin    = 24 * time.Hour
 	StdinPrompt            = "prompt"
 	StdinNone              = "none"
 )
 
 type Command struct {
-	Name      string
-	Argv      []string
-	Stdin     string
-	PromptArg bool
-	Cwd       string
-	Env       map[string]string
-	Timeout   time.Duration
-	Line      int
+	Name         string
+	Argv         []string
+	Stdin        string
+	PromptArg    bool
+	Cwd          string
+	Env          map[string]string
+	Timeout      time.Duration
+	ReportWithin time.Duration
+	Line         int
 }
+
+func (c *Command) Reports() bool { return c.ReportWithin > 0 }
 
 type Notifications struct {
 	On       []string
@@ -118,7 +122,7 @@ func (m *Machine) loadCommands(node *yaml.Node) Issues {
 		return issues
 	}
 	for _, p := range pairsOf(node) {
-		c := &Command{Name: p.key.Value, Stdin: StdinPrompt, Timeout: DefaultCommandTimeout, Line: p.key.Line, Env: map[string]string{}}
+		c := &Command{Name: p.key.Value, Stdin: StdinPrompt, Timeout: DefaultCommandTimeout, ReportWithin: DefaultReportWithin, Line: p.key.Line, Env: map[string]string{}}
 		if p.value.Kind != yaml.MappingNode {
 			issues.add(m.Path, p.key.Line, "command %q: expected a mapping", c.Name)
 			continue
@@ -146,6 +150,15 @@ func (m *Machine) loadCommands(node *yaml.Node) Issues {
 				var s string
 				if s, err = scalarString(f.value); err == nil {
 					c.Timeout, err = ParseDuration(s)
+				}
+			case "report_within":
+				var s string
+				if s, err = scalarString(f.value); err == nil && s == "never" {
+					c.ReportWithin = 0
+				} else if err == nil {
+					if c.ReportWithin, err = ParseDuration(s); err == nil && c.ReportWithin == 0 {
+						err = errorf("expected a positive duration, or never for a command that is not an agent")
+					}
 				}
 			default:
 				issues.add(m.Path, f.key.Line, "command %q: unknown key %q", c.Name, f.key.Value)

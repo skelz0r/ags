@@ -40,9 +40,15 @@ Read before concluding; every command accepts `--json`.
      The fix is in the precheck script (or moving its warning to
      stdout); `ags doctor` reports the job while its latest precheck
      within 7 days crashed;
-   - `failed`: read the run.
+   - `failed`: read the run;
+   - `succeeded` says the command exited 0, for a hand-off that it
+     handed off: what the agent then did is its `report` (status
+     `done`, `nothing`, `failed` or `blocked`, a summary, a `ref`), or
+     `awaits_report` with no report when it has not run `ags report`
+     yet; `ags doctor` flags such a run past its command's
+     `report_within` (24h by default).
 4. `ags show <run id> --json`: rendered prompt, precheck output, stdout,
-   stderr, exit code, argv.
+   stderr, exit code, argv, report.
 5. If nothing was recorded at all: the job is new (nothing fires for
    the past), the project file is invalid (`ags validate <path>`), or
    the daemon was not running (on Linux, often a logout without

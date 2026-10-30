@@ -111,14 +111,14 @@ func (a *App) candidates(before []string, current string) []candidate {
 		}
 	}
 	if pending != "" {
-		return a.flagValues(pending)
+		return a.flagValues(args[0], pending)
 	}
 	if !literal && strings.HasPrefix(current, "-") {
 		if flag, _, inline := strings.Cut(current, "="); inline {
 			if !u.flags[strings.TrimLeft(flag, "-")] {
 				return nil
 			}
-			out := a.flagValues(strings.TrimLeft(flag, "-"))
+			out := a.flagValues(args[0], strings.TrimLeft(flag, "-"))
 			for i := range out {
 				if out[i].value != completeFiles {
 					out[i].value = flag + "=" + out[i].value
@@ -157,7 +157,7 @@ func flagSpelling(name string) string {
 	return "--" + name
 }
 
-func (a *App) flagValues(name string) []candidate {
+func (a *App) flagValues(command, name string) []candidate {
 	switch name {
 	case "project":
 		return a.projectCandidates()
@@ -165,6 +165,12 @@ func (a *App) flagValues(name string) []candidate {
 		return a.jobCandidates()
 	case "status":
 		var out []candidate
+		if command == "report" {
+			for _, s := range state.ReportStatuses {
+				out = append(out, candidate{s, ""})
+			}
+			return out
+		}
 		for _, s := range []string{state.StatusRunning, state.StatusSucceeded, state.StatusFailed, state.StatusSkipped, state.StatusPrecheckError, state.StatusMissed} {
 			out = append(out, candidate{s, ""})
 		}

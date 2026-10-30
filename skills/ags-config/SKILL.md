@@ -42,7 +42,10 @@ Edit the jobs of a project registered with `ags`. The reference is
      nothing new, say so and stop");
    - long prompts go to `prompt_file: .ags/<job>.md`;
    - available placeholders: `{project.name}`, `{job.name}`,
-     `{run.scheduled_for}`, `{run.late_by}`, `{precheck.output}`.
+     `{run.id}`, `{run.scheduled_for}`, `{run.late_by}`,
+     `{precheck.output}`;
+   - no need to ask for an `ags report` at the end: ags appends that
+     instruction itself, unless the command has `report_within: never`.
 6. Add a `precheck` when a cheap shell test avoids empty runs. Exit 0
    runs the job; exit 1 with nothing on stderr skips it, stdout kept as
    the reason; anything else (exit 1 after writing to stderr, another

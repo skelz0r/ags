@@ -31,6 +31,7 @@ const (
 	CodeUnapproved    = "unapproved"
 	CodeBusy          = "busy"
 	CodeRunFailed     = "run_failed"
+	CodeNotReportable = "not_reportable"
 	CodeError         = "error"
 )
 
@@ -99,6 +100,7 @@ func init() {
 		"run":        {run: (*App).runJob, summary: "run <project/job> [--skip-precheck] [--dry-run]"},
 		"runs":       {run: (*App).runs, summary: "runs [--project p] [--job j] [--status s] [--since 7d] [--limit n]"},
 		"show":       {run: (*App).show, summary: "show <run>"},
+		"report":     {run: (*App).report, summary: "report <run> --status done|nothing|failed|blocked --summary text [--ref r]"},
 		"pause":      {run: (*App).pause, editing: true, summary: "pause <project[/job]>"},
 		"resume":     {run: (*App).resume, editing: true, summary: "resume <project[/job]>"},
 		"approve":    {run: (*App).approve, editing: true, summary: "approve <project[/job]> [--yes] [--fingerprints f1,f2]"},
@@ -191,7 +193,7 @@ func (a *App) refuseInsideRun(name string) error {
 	return nil
 }
 
-var commandOrder = []string{"add", "remove", "projects", "validate", "jobs", "next", "run", "runs", "show", "pause", "resume", "approve", "new", "edit", "delete", "install", "uninstall", "daemon", "doctor", "completion"}
+var commandOrder = []string{"add", "remove", "projects", "validate", "jobs", "next", "run", "runs", "show", "report", "pause", "resume", "approve", "new", "edit", "delete", "install", "uninstall", "daemon", "doctor", "completion"}
 
 func helpText() string {
 	var b strings.Builder
