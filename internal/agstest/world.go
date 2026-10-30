@@ -217,7 +217,15 @@ func (w *World) Register() {
 
 func (w *World) Daemon() *daemon.Daemon {
 	w.T.Helper()
-	d, err := daemon.New(daemon.Options{Paths: w.Paths, Notifier: w.Notes, Now: func() time.Time { return w.Now }})
+	if err := os.MkdirAll(w.Paths.StateDir, 0o700); err != nil {
+		w.T.Fatal(err)
+	}
+	log, err := os.OpenFile(w.Paths.DaemonLog(), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
+	if err != nil {
+		w.T.Fatal(err)
+	}
+	w.T.Cleanup(func() { log.Close() })
+	d, err := daemon.New(daemon.Options{Paths: w.Paths, Notifier: w.Notes, Log: log, Now: func() time.Time { return w.Now }})
 	if err != nil {
 		w.T.Fatal(err)
 	}

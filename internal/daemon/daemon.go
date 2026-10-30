@@ -388,12 +388,10 @@ func (d *Daemon) start(dec *decision) {
 			return
 		}
 		defer func() { <-d.sem }()
-		started := func() {
-			d.logf("%s %s: started run %s (%s, late by %s)", run.Key(), run.ScheduledFor.Format(time.RFC3339), run.ID, run.Trigger, config.FormatDuration(run.LateBy()))
-		}
-		result := rn.Execute(d.ctx, runner.Request{Project: dec.project, Job: dec.job, Run: run, OnStart: started})
+		d.logf("%s", run.StartedLog())
+		result := rn.Execute(d.ctx, runner.Request{Project: dec.project, Job: dec.job, Run: run})
 		if result == run {
-			d.logf("%s: run %s %s %s", run.Key(), run.ID, result.Status, result.Reason)
+			d.logf("%s", run.EndedLog())
 		}
 	}()
 }

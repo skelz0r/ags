@@ -404,9 +404,11 @@ Error codes: `usage`, `invalid_config` (both exit 2), `not_found`,
   its `timeout` is killed and the run marked `failed`.
 - On restart, runs left `running` are marked `failed` with reason
   `interrupted`.
-- `daemon.log` gets a line when a command starts (after its precheck)
-  and when an entry ends; an occurrence folded into a series of skips
-  writes nothing, so a series costs one line.
+- `daemon.log` gets a `started` line when a run starts, before its
+  precheck, so a precheck still running or about to time out shows,
+  and a line when an entry ends, except an occurrence folded into a
+  series of skips. `ags run` writes its `started` and end lines there
+  too, so `tail -f daemon.log` follows every run.
 
 ## Schedule semantics
 
