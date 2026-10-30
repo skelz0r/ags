@@ -58,6 +58,8 @@ preprompt) and an unversioned `.ags.local.yml`.
 - **Preprompt**: text put before every job's prompt, at machine,
   project or local level.
 - **Run**: one execution of a job's command, scheduled or manual.
+- **Report**: what the agent a run started concluded, sent back with
+  `ags report` (one per run, the last wins).
 
 ## Files
 
@@ -137,6 +139,7 @@ Command fields:
 | `cwd` | project path | working directory |
 | `env` | `{}` | extra environment |
 | `timeout` | `5m` | the process is killed (SIGTERM then SIGKILL on its group) past it |
+| `report_within` | `24h` | how long after its start a run of this command may go without `ags report` before `ags doctor` flags it; `never` for a command that is not an agent: no report instruction in its prompt, no report awaited |
 
 Every command also gets `AGS_PROJECT`, `AGS_PROJECT_PATH`, `AGS_JOB`,
 `AGS_RUN_ID`, `AGS_SCHEDULED_FOR`, `AGS_TRIGGER` (`schedule`,
@@ -221,7 +224,7 @@ Fields:
 | `enabled` | `true` | |
 
 Unknown keys are errors. The prompt can use `{project.name}`,
-`{job.name}`, `{run.scheduled_for}`, `{run.late_by}` and
+`{job.name}`, `{run.id}`, `{run.scheduled_for}`, `{run.late_by}` and
 `{precheck.output}` (see [Precheck](#precheck)); nothing else is
 templated, preprompts included.
 
@@ -266,6 +269,14 @@ job's prompt, templated. It is rendered once the precheck has passed,
 right before the command starts, so a run its precheck stopped has no
 `prompt.md`. `ags run --dry-run` prints it exactly, with a marker in
 place of the precheck's output.
+
+Unless the command has `report_within: never`, ags appends a last
+paragraph telling the agent to end with `ags report <run id> --status
+... --summary ... [--ref ...]`, the run id written out: a hand-off
+agent runs in another session, without the run's environment, and
+could not guess it. Under `AGS_HOME` the line starts with
+`AGS_HOME=<dir>`, so a sandboxed run never reports into the real
+state. Every job gets it without its prompt file saying so.
 
 ## Approval of shared jobs
 
@@ -338,7 +349,23 @@ usage.
 - `ags runs [--project p] [--job j] [--status s] [--since 7d]
   [--limit 50]`, `ags show <run>` (a run id or a unique prefix). A
   folded series of skips sorts and matches `--since` by its latest
-  occurrence.
+  occurrence. Both show the run's report: its status, `awaited` while
+  a `running` or `succeeded` run of an agent has none, `-` otherwise
+  (a failed hand-off never reached the agent).
+- `ags report <run> --status done|nothing|failed|blocked --summary
+  text [--ref r]`: the agent's outcome, written into the run's
+  `run.json` and logged in `daemon.log`. `done`: the work is done,
+  `--ref` its commit, pull request or URL; `nothing`: nothing to do
+  or not concerned, usually without ref; `failed`: tried and could
+  not; `blocked`: needs a human. The summary is free text, a sentence
+  or two (2,000 bytes at most), the details belonging in what `--ref`
+  points to. A second report replaces the first: one report per run,
+  no history of steps; ags is not a task tracker. Accepted while the
+  run is still `running` (a `claude -p` agent reports before it
+  exits) and after it ended; refused with `not_reportable` for an
+  entry whose command never started (`skipped`, `missed`,
+  `precheck_error`), and `not_found` for an unknown id, a run of
+  another `AGS_HOME` included.
 - `ags new <project/job> --schedule cron --prompt text [--prompt-file
   f] [--command c] [--precheck sh] [--catch-up d] [--local]`,
   `ags edit <project/job>` (`$EDITOR` at the job's line, then
@@ -359,7 +386,8 @@ usage.
 - `ags doctor`: service loaded (running, on Linux), daemon alive, last tick, every
   project path present and its files valid, every command's program
   found, no job whose latest precheck crashed (`precheck_error` in the
-  last 7 days).
+  last 7 days), no `succeeded` run of the last 7 days still without a
+  report past its command's `report_within`.
 - `ags completion zsh`: prints the zsh completion script. Bash is
   left out: its word splitting on `=` and `:` and its quoting made
   every candidate insertion a special case.
@@ -376,10 +404,11 @@ usage.
 `ags pause`, `ags resume`, `ags new`, `ags edit`, `ags delete`,
 `ags install` and `ags uninstall` refuse to run when `AGS_RUN_ID` is
 set (error code `inside_run`), so a scheduled run does not schedule
-more work by accident.
+more work by accident. `ags report` is meant to run there.
 
 Error codes: `usage`, `invalid_config` (both exit 2), `not_found`,
-`inside_run`, `unapproved`, `busy`, `run_failed`, `error` (exit 1).
+`inside_run`, `unapproved`, `busy`, `run_failed`, `not_reportable`,
+`error` (exit 1).
 
 ## Daemon
 
@@ -405,10 +434,11 @@ Error codes: `usage`, `invalid_config` (both exit 2), `not_found`,
 - On restart, runs left `running` are marked `failed` with reason
   `interrupted`.
 - `daemon.log` gets a `started` line when a run starts, before its
-  precheck, so a precheck still running or about to time out shows,
-  and a line when an entry ends, except an occurrence folded into a
-  series of skips. `ags run` writes its `started` and end lines there
-  too, so `tail -f daemon.log` follows every run.
+  precheck, so a precheck still running or about to time out shows; a
+  line when an entry ends, except an occurrence folded into a series
+  of skips; and a `reported` line for each `ags report`, with its
+  status, summary and ref. `ags run` writes its `started` and end
+  lines there too, so `tail -f daemon.log` follows every run.
 
 ## Schedule semantics
 
@@ -478,7 +508,8 @@ Error codes: `usage`, `invalid_config` (both exit 2), `not_found`,
 ## Runs and history
 
 - Statuses: `running`, `succeeded` (command exited 0: for a hand-off,
-  handed off, whatever the agent does next), `failed`,
+  handed off, whatever the agent does next: its report says what it
+  concluded), `failed`,
   `skipped` (`precheck`, `overlap`, `paused`, `unapproved`), `precheck_error`,
   `missed`.
 - Consecutive skips of a job with the same reason (the precheck's
@@ -489,7 +520,9 @@ Error codes: `usage`, `invalid_config` (both exit 2), `not_found`,
   occurrence leaves no directory of its own.
 - A run records project, job, trigger, scheduled time, lateness, start
   and end, the command name and argv, exit code (the precheck's when
-  the precheck stopped the run), the first 64 KiB of stdout and
+  the precheck stopped the run), whether it awaits a report
+  (`awaits_report`) and the report (`report`: status, summary, ref,
+  time), the first 64 KiB of stdout and
   stderr, and the precheck's stdout and stderr (`precheck.log`, first
   64 KiB). A `precheck_error` is never folded. A hand-off command can
   print an id on stdout to link the run to whatever it handed off to.
@@ -499,7 +532,9 @@ Error codes: `usage`, `invalid_config` (both exit 2), `not_found`,
   append-only `history.jsonl` at the state root: one line per entry
   once it ends, and for a folded series one more with its final count
   when the next entry of the job ends it (at once when a precheck
-  folds after a later entry), so the last line of an id wins. The state directory is created `0700`.
+  folds after a later entry), and one more for each report of an
+  ended run, so the last line of an id wins. The state directory is
+  created `0700`.
 - Keeps the last 100 runs per job (`succeeded`, `failed`,
   `precheck_error`) and, apart, its last 100 `skipped` or `missed`
   entries, so that skips never push a run out; older directories are
@@ -579,8 +614,9 @@ What the tool guarantees, and nothing more:
 
 ## Out of scope
 
-- Following the agent after the command exits (outcome, findings,
-  cost): the command's exit code is the run's result.
+- Following the agent beyond its single report (steps, findings,
+  cost): the command's exit code is the run's status, the report what
+  the agent concluded.
 - Worktrees: the command's business (`claude -p -w`, or the agent the
   prompt is handed to).
 - Permission profiles, sandboxing, outputs

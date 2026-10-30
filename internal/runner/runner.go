@@ -53,10 +53,21 @@ func NewRun(p *config.Project, j *config.Job, trigger string, scheduledFor, deci
 
 func (rn *Runner) Context(run *state.Run) config.RunContext {
 	rc := config.RunContext{ID: run.ID, Trigger: run.Trigger, ScheduledFor: run.ScheduledFor, LateBy: run.LateBy(), JobStateDir: rn.Store.JobStateDir(run)}
+	if rn.Store.Paths.Isolated {
+		home, _ := filepath.Abs(filepath.Dir(rn.Store.Paths.StateDir))
+		rc.AGSHome = ShellQuote(home)
+	}
 	if st, err := rn.Store.Read(); err == nil {
 		rc.LastSuccessAt = st.LastSuccess[run.Key()]
 	}
 	return rc
+}
+
+func ShellQuote(s string) string {
+	if s != "" && !strings.ContainsAny(s, " \t\n'\"$`\\|&;<>(){}*?[]#~") {
+		return s
+	}
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
 
 func (rn *Runner) Execute(ctx context.Context, req Request) *state.Run {
@@ -76,6 +87,7 @@ func (rn *Runner) Execute(ctx context.Context, req Request) *state.Run {
 	prompt := config.RenderPrompt(rn.Machine, p, j, rc)
 	inv := config.Invoke(rn.Machine, p, j, rc, prompt)
 	run.Argv = inv.Argv
+	run.AwaitsReport = inv.Command.Reports()
 	rn.Store.WriteRunFile(run, "prompt.md", []byte(prompt))
 	rn.Store.SaveRun(run)
 

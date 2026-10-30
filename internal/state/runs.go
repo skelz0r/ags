@@ -12,6 +12,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/skelz0r/ags/internal/config"
@@ -31,6 +32,11 @@ const (
 	ReasonUnapproved  = "unapproved"
 	ReasonInterrupted = "interrupted"
 	ReasonTimeout     = "timeout"
+
+	ReportDone    = "done"
+	ReportNothing = "nothing"
+	ReportFailed  = "failed"
+	ReportBlocked = "blocked"
 
 	TriggerSchedule = "schedule"
 	TriggerCatchUp  = "catch_up"
@@ -60,6 +66,29 @@ type Run struct {
 	Argv          []string   `json:"argv,omitempty"`
 	ExitCode      *int       `json:"exit_code,omitempty"`
 	OwnerPID      int        `json:"owner_pid,omitempty"`
+	AwaitsReport  bool       `json:"awaits_report,omitempty"`
+	Report        *Report    `json:"report,omitempty"`
+}
+
+type Report struct {
+	Status  string    `json:"status"`
+	Summary string    `json:"summary"`
+	Ref     string    `json:"ref,omitempty"`
+	At      time.Time `json:"at"`
+}
+
+var ReportStatuses = []string{ReportDone, ReportNothing, ReportFailed, ReportBlocked}
+
+func (r *Run) CommandStarted() bool { return len(r.Argv) > 0 }
+
+func (r *Run) ReportLabel() string {
+	switch {
+	case r.Report != nil:
+		return r.Report.Status
+	case r.AwaitsReport && (r.Status == StatusRunning || r.Status == StatusSucceeded):
+		return "awaited"
+	}
+	return "-"
 }
 
 func (r *Run) StartedLog() string {
@@ -68,6 +97,14 @@ func (r *Run) StartedLog() string {
 
 func (r *Run) EndedLog() string {
 	return strings.TrimSpace(fmt.Sprintf("%s: run %s %s %s", r.Key(), r.ID, r.Status, r.Reason))
+}
+
+func (r *Run) ReportedLog() string {
+	line := fmt.Sprintf("%s: run %s reported %s: %s", r.Key(), r.ID, r.Report.Status, strings.Join(strings.Fields(r.Report.Summary), " "))
+	if r.Report.Ref != "" {
+		line += " (" + r.Report.Ref + ")"
+	}
+	return line
 }
 
 func (r *Run) LateBy() time.Duration { return time.Duration(r.LateBySeconds) * time.Second }
@@ -97,7 +134,10 @@ func (r *Run) repeats(prev *Run) bool {
 
 func (r *Run) Key() string { return r.Project + "/" + r.Job }
 
-var historyMu sync.Mutex
+var (
+	historyMu        sync.Mutex
+	ErrNotReportable = errors.New("nothing to report on")
+)
 
 func NewRunID(now time.Time) string {
 	b := make([]byte, 3)
@@ -132,7 +172,7 @@ func (s *Store) Record(r *Run) (*Run, error) {
 	prev.SkippedCount = max(prev.SkippedCount, 1) + 1
 	last := r.ScheduledFor
 	prev.SkippedLast = &last
-	if err := s.writeRun(prev); err != nil {
+	if err := s.writeRun(prev, false); err != nil {
 		return r, s.save(r, prev)
 	}
 	if followed {
@@ -165,30 +205,95 @@ func (s *Store) previous(r *Run) (prev *Run, followed bool) {
 }
 
 func (s *Store) save(r, prev *Run) error {
-	if err := s.writeRun(r); err != nil {
+	var seriesErr error
+	if r.Terminal() && prev != nil && prev.SkippedCount > 0 {
+		seriesErr = s.appendHistory(prev)
+	}
+	if err := s.writeRun(r, r.Terminal()); err != nil {
 		return err
 	}
-	if !r.Terminal() {
-		return nil
-	}
-	if prev != nil && prev.SkippedCount > 0 {
-		if err := s.appendHistory(prev); err != nil {
-			return err
-		}
-	}
-	return s.appendHistory(r)
+	return seriesErr
 }
 
-func (s *Store) writeRun(r *Run) error {
+func (s *Store) writeRun(r *Run, toHistory bool) error {
 	dir := s.RunDir(r)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return err
 	}
+	unlock, err := lockDir(dir)
+	if err != nil {
+		return err
+	}
+	defer unlock()
+	if stored, err := readRun(filepath.Join(dir, "run.json")); err == nil {
+		r.Report = stored.Report
+	}
+	if err := s.writeRunLocked(r); err != nil {
+		return err
+	}
+	if toHistory {
+		return s.appendHistory(r)
+	}
+	return nil
+}
+
+func (s *Store) writeRunLocked(r *Run) error {
 	data, err := json.MarshalIndent(r, "", "  ")
 	if err != nil {
 		return err
 	}
-	return config.WriteFileAtomic(filepath.Join(dir, "run.json"), append(data, '\n'), 0o600)
+	return config.WriteFileAtomic(filepath.Join(s.RunDir(r), "run.json"), append(data, '\n'), 0o600)
+}
+
+func (s *Store) removeRunDir(dir string) {
+	unlock, err := lockDir(dir)
+	if err != nil {
+		return
+	}
+	defer unlock()
+	os.RemoveAll(dir)
+}
+
+func lockDir(dir string) (func(), error) {
+	f, err := os.Open(dir)
+	if err != nil {
+		return nil, err
+	}
+	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX); err != nil {
+		f.Close()
+		return nil, err
+	}
+	return func() {
+		syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
+		f.Close()
+	}, nil
+}
+
+func (s *Store) Report(id string, report Report) (*Run, error) {
+	found, err := s.FindRun(id)
+	if err != nil {
+		return nil, err
+	}
+	if !found.CommandStarted() {
+		return nil, fmt.Errorf("%w: run %s is %s, its command never started", ErrNotReportable, found.ID, found.Status)
+	}
+	unlock, err := lockDir(s.RunDir(found))
+	if err != nil {
+		return nil, err
+	}
+	defer unlock()
+	r, err := readRun(filepath.Join(s.RunDir(found), "run.json"))
+	if err != nil {
+		return nil, err
+	}
+	r.Report = &report
+	if err := s.writeRunLocked(r); err != nil {
+		return nil, err
+	}
+	if r.Terminal() {
+		return r, s.appendHistory(r)
+	}
+	return r, nil
 }
 
 func (s *Store) WriteRunFile(r *Run, name string, data []byte) error {
@@ -331,7 +436,7 @@ func (s *Store) Prune(keep int) error {
 				kept[ran]++
 				continue
 			}
-			os.RemoveAll(filepath.Join(jobDir, id))
+			s.removeRunDir(filepath.Join(jobDir, id))
 		}
 	}
 	return nil

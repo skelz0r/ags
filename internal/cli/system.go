@@ -243,6 +243,29 @@ func brokenPrechecks(store *state.Store, now time.Time) []*state.Run {
 	return broken
 }
 
+func unreportedRuns(store *state.Store, m *config.Machine, now time.Time) []*state.Run {
+	runs, _ := store.ListRuns(state.Filter{Status: state.StatusSucceeded})
+	var unreported []*state.Run
+	for _, r := range runs {
+		if !r.AwaitsReport || r.Report != nil || r.StartedAt == nil {
+			continue
+		}
+		age, within := now.Sub(*r.StartedAt), reportWithin(m, r)
+		if within > 0 && age > within && age <= 7*24*time.Hour {
+			unreported = append(unreported, r)
+		}
+	}
+	sort.Slice(unreported, func(i, j int) bool { return unreported[i].ID < unreported[j].ID })
+	return unreported
+}
+
+func reportWithin(m *config.Machine, r *state.Run) time.Duration {
+	if cmd := m.Commands[r.Command]; cmd != nil {
+		return cmd.ReportWithin
+	}
+	return config.DefaultReportWithin
+}
+
 func precheckRan(store *state.Store, r *state.Run) bool {
 	switch {
 	case r.Status == state.StatusPrecheckError, r.Status == state.StatusSkipped && strings.HasPrefix(r.Reason, state.ReasonPrecheck):
@@ -337,6 +360,9 @@ func (a *App) doctor(args []string) (result, error) {
 	}
 	for _, r := range brokenPrechecks(store, a.Now()) {
 		add("precheck "+r.Key(), false, "%s at %s: %s, see ags show %s", r.Status, precheckRanAt(r).Local().Format(time.RFC3339), r.Reason, r.ID)
+	}
+	for _, r := range unreportedRuns(store, m, a.Now()) {
+		add("report "+r.Key(), false, "run %s started %s, no ags report after %s, see ags show %s", r.ID, r.StartedAt.Local().Format(time.RFC3339), config.FormatDuration(reportWithin(m, r)), r.ID)
 	}
 	var b strings.Builder
 	failed := 0

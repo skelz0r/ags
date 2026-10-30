@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"slices"
 	"strings"
 	"syscall"
 	"text/tabwriter"
@@ -128,6 +129,45 @@ func (a *App) logf(format string, args ...any) {
 	fmt.Fprintf(f, "%s %s\n", a.Now().Format(time.RFC3339), fmt.Sprintf(format, args...))
 }
 
+const summaryLimit = 2000
+
+func (a *App) report(args []string) (result, error) {
+	f := newFlags("report")
+	status := f.String("status", "", "")
+	summary := f.String("summary", "", "")
+	ref := f.String("ref", "", "")
+	if err := f.parse(args, 1, 1); err != nil {
+		return result{}, err
+	}
+	if !slices.Contains(state.ReportStatuses, *status) {
+		return result{}, usageError("--status: expected one of %s", strings.Join(state.ReportStatuses, ", "))
+	}
+	text := strings.TrimSpace(*summary)
+	switch {
+	case text == "":
+		return result{}, usageError("--summary is required: what was done or concluded, in a sentence or two")
+	case len(text) > summaryLimit:
+		return result{}, usageError("--summary is %d bytes, over %d: a sentence or two, the details belong in the commit, pull request or issue given as --ref", len(text), summaryLimit)
+	}
+	store, err := a.store()
+	if err != nil {
+		return result{}, err
+	}
+	found, err := store.FindRun(f.positional[0])
+	if err != nil {
+		return result{}, failure(CodeNotFound, "%v in %s (a run started under another AGS_HOME is reported with that AGS_HOME)", err, a.paths.RunsDir())
+	}
+	run, err := store.Report(found.ID, state.Report{Status: *status, Summary: text, Ref: strings.TrimSpace(*ref), At: a.Now()})
+	if errors.Is(err, state.ErrNotReportable) {
+		return result{}, failure(CodeNotReportable, "%v", err)
+	}
+	if err != nil {
+		return result{}, err
+	}
+	a.logf("%s", run.ReportedLog())
+	return result{data: runView(store, run), text: fmt.Sprintf("%s reported %s\n", run.ID, run.Report.Status)}, nil
+}
+
 func orNone(s string) string {
 	if s == "" {
 		return "(none)"
@@ -138,11 +178,7 @@ func orNone(s string) string {
 func quoteArgv(argv []string) string {
 	out := make([]string, len(argv))
 	for i, arg := range argv {
-		if arg == "" || strings.ContainsAny(arg, " \t\n'\"$`\\|&;<>(){}*?[]#~") {
-			out[i] = "'" + strings.ReplaceAll(arg, "'", `'\''`) + "'"
-		} else {
-			out[i] = arg
-		}
+		out[i] = runner.ShellQuote(arg)
 	}
 	return strings.Join(out, " ")
 }
@@ -179,7 +215,7 @@ func (a *App) runs(args []string) (result, error) {
 	views := []RunView{}
 	var b strings.Builder
 	w := tabwriter.NewWriter(&b, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(w, "RUN\tJOB\tSCHEDULED\tTRIGGER\tSTATUS\tDURATION\tEXIT")
+	fmt.Fprintln(w, "RUN\tJOB\tSCHEDULED\tTRIGGER\tSTATUS\tREPORT\tDURATION\tEXIT")
 	for _, r := range runs {
 		v := runView(store, r)
 		views = append(views, v)
@@ -187,7 +223,7 @@ func (a *App) runs(args []string) (result, error) {
 		if r.ExitCode != nil {
 			exit = fmt.Sprint(*r.ExitCode)
 		}
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n", r.ID, r.Key(), v.LastScheduled().Local().Format("2006-01-02 15:04"), orDash(r.Trigger), v.Label(), durationText(r), exit)
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n", r.ID, r.Key(), v.LastScheduled().Local().Format("2006-01-02 15:04"), orDash(r.Trigger), v.Label(), r.ReportLabel(), durationText(r), exit)
 	}
 	w.Flush()
 	return result{data: views, text: b.String()}, nil
@@ -268,6 +304,15 @@ func RunDetailText(v RunView, prompt, precheck, stdout, stderr string) string {
 		fmt.Fprintf(&b, "exit      %d (precheck)\n", *v.ExitCode)
 	case v.ExitCode != nil:
 		fmt.Fprintf(&b, "exit      %d\n", *v.ExitCode)
+	}
+	switch {
+	case v.Report != nil:
+		fmt.Fprintf(&b, "report    %s at %s: %s\n", v.Report.Status, v.Report.At.Local().Format(time.RFC3339), v.Report.Summary)
+		if v.Report.Ref != "" {
+			fmt.Fprintf(&b, "ref       %s\n", v.Report.Ref)
+		}
+	case v.ReportLabel() == "awaited":
+		b.WriteString("report    awaited: the agent has not run ags report yet\n")
 	}
 	fmt.Fprintf(&b, "dir       %s\n", v.Dir)
 	for _, section := range []struct{ name, body string }{{"prompt", prompt}, {"precheck", precheck}, {"stdout", stdout}, {"stderr", stderr}} {

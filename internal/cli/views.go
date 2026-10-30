@@ -32,25 +32,27 @@ type JobView struct {
 }
 
 type RunView struct {
-	ID              string     `json:"id"`
-	Project         string     `json:"project"`
-	Job             string     `json:"job"`
-	Trigger         string     `json:"trigger,omitempty"`
-	Status          string     `json:"status"`
-	Reason          string     `json:"reason,omitempty"`
-	ScheduledFor    time.Time  `json:"scheduled_for"`
-	LateBy          string     `json:"late_by"`
-	MissedCount     int        `json:"missed_count,omitempty"`
-	MissedLast      *time.Time `json:"missed_last,omitempty"`
-	SkippedCount    int        `json:"skipped_count,omitempty"`
-	SkippedLast     *time.Time `json:"skipped_last,omitempty"`
-	StartedAt       *time.Time `json:"started_at,omitempty"`
-	EndedAt         *time.Time `json:"ended_at,omitempty"`
-	DurationSeconds float64    `json:"duration_seconds"`
-	Command         string     `json:"command,omitempty"`
-	Argv            []string   `json:"argv,omitempty"`
-	ExitCode        *int       `json:"exit_code,omitempty"`
-	Dir             string     `json:"dir"`
+	ID              string        `json:"id"`
+	Project         string        `json:"project"`
+	Job             string        `json:"job"`
+	Trigger         string        `json:"trigger,omitempty"`
+	Status          string        `json:"status"`
+	Reason          string        `json:"reason,omitempty"`
+	ScheduledFor    time.Time     `json:"scheduled_for"`
+	LateBy          string        `json:"late_by"`
+	MissedCount     int           `json:"missed_count,omitempty"`
+	MissedLast      *time.Time    `json:"missed_last,omitempty"`
+	SkippedCount    int           `json:"skipped_count,omitempty"`
+	SkippedLast     *time.Time    `json:"skipped_last,omitempty"`
+	StartedAt       *time.Time    `json:"started_at,omitempty"`
+	EndedAt         *time.Time    `json:"ended_at,omitempty"`
+	DurationSeconds float64       `json:"duration_seconds"`
+	Command         string        `json:"command,omitempty"`
+	Argv            []string      `json:"argv,omitempty"`
+	ExitCode        *int          `json:"exit_code,omitempty"`
+	AwaitsReport    bool          `json:"awaits_report,omitempty"`
+	Report          *state.Report `json:"report,omitempty"`
+	Dir             string        `json:"dir"`
 }
 
 func jobView(j *config.Job, st *state.State, now time.Time, n int, home string) JobView {
@@ -99,6 +101,8 @@ func runView(store *state.Store, r *state.Run) RunView {
 		Command:         r.Command,
 		Argv:            r.Argv,
 		ExitCode:        r.ExitCode,
+		AwaitsReport:    r.AwaitsReport,
+		Report:          r.Report,
 		Dir:             store.RunDir(r),
 	}
 }
@@ -108,6 +112,11 @@ func (v RunView) LastScheduled() time.Time {
 		return *v.SkippedLast
 	}
 	return v.ScheduledFor
+}
+
+func (v RunView) ReportLabel() string {
+	r := state.Run{Status: v.Status, AwaitsReport: v.AwaitsReport, Report: v.Report}
+	return r.ReportLabel()
 }
 
 func (v RunView) Label() string {
