@@ -21,6 +21,8 @@ description: Run an ags job now and report the result - check the rendered promp
    and its stdout and stderr are in `precheck_log`.
    A hand-off command returns at once: its stdout often holds an id of
    what it handed off to, and the agent sends its outcome later with
-   `ags report`, shown by `ags show <run id>` once it arrives.
+   `ags report`, shown by `ags show <run id>` once it arrives; to
+   watch for it, the user can keep `ags feed --job <project/job>`
+   open in a terminal tab.
 
 `ags run` refuses inside a scheduled run (`AGS_RUN_ID` set).
