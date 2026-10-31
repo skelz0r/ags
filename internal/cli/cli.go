@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -46,6 +47,9 @@ type App struct {
 	OpenTUI  func(*App) error
 	Exe      func() (string, error)
 
+	Context      context.Context
+	PollInterval time.Duration
+
 	json    bool
 	paths   paths.Paths
 	reader  *bufio.Reader
@@ -75,8 +79,9 @@ func invalid(data any, issues config.Issues) *Error {
 }
 
 type result struct {
-	data any
-	text string
+	data     any
+	text     string
+	streamed bool
 }
 
 type handler func(a *App, args []string) (result, error)
@@ -100,6 +105,7 @@ func init() {
 		"run":        {run: (*App).runJob, summary: "run <project/job> [--skip-precheck] [--dry-run]"},
 		"runs":       {run: (*App).runs, summary: "runs [--project p] [--job j] [--status s] [--since 7d] [--limit n]"},
 		"show":       {run: (*App).show, summary: "show <run>"},
+		"feed":       {run: (*App).feed, summary: "feed [--project p] [--job j] [--since 24h] [--all] [--no-follow]"},
 		"report":     {run: (*App).report, summary: "report <run> --status done|nothing|failed|blocked --summary text [--ref r]"},
 		"pause":      {run: (*App).pause, editing: true, summary: "pause <project[/job]>"},
 		"resume":     {run: (*App).resume, editing: true, summary: "resume <project[/job]>"},
@@ -193,7 +199,7 @@ func (a *App) refuseInsideRun(name string) error {
 	return nil
 }
 
-var commandOrder = []string{"add", "remove", "projects", "validate", "jobs", "next", "run", "runs", "show", "report", "pause", "resume", "approve", "new", "edit", "delete", "install", "uninstall", "daemon", "doctor", "completion"}
+var commandOrder = []string{"add", "remove", "projects", "validate", "jobs", "next", "run", "runs", "show", "feed", "report", "pause", "resume", "approve", "new", "edit", "delete", "install", "uninstall", "daemon", "doctor", "completion"}
 
 func helpText() string {
 	var b strings.Builder
@@ -215,6 +221,9 @@ func (a *App) emit(res result, err error) int {
 	var cliErr *Error
 	if err != nil && !errors.As(err, &cliErr) {
 		cliErr = failure(CodeError, "%v", err)
+	}
+	if res.streamed && cliErr == nil {
+		return ExitOK
 	}
 	if a.json {
 		env := envelope{OK: cliErr == nil, Data: res.data, Error: cliErr}
