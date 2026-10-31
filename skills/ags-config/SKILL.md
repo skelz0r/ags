@@ -26,9 +26,16 @@ Edit the jobs of a project registered with `ags`. The reference is
 1. Find the project: `ags projects --json`. If the directory is not
    registered, say so; registering is `ags add <path>` and the user's
    call.
-2. Decide shared or local. Shared when the job makes sense for anyone
-   working on the repo; local when it is about this machine, this
-   developer's tools or habits. When unclear, ask.
+2. Decide shared or local by the job, not by the tools its prompt
+   would like to name. Shared when the job makes sense for anyone
+   working on the repo, even when this machine runs it with its own
+   tools; local when the job itself is about this machine, this
+   developer's tools or habits. When unclear, ask. Never move a shared
+   job, or an override of its prompt, to `.ags.local.yml` just to name
+   a machine tool: rephrase the shared prompt instead (step 5). A prompt
+   override that had to dispatch the work to a dedicated tab ended up
+   in the local file, unversioned, when the machine preprompt already
+   said how to dispatch.
 3. Read the file you will change and keep every other job, comment and
    key order untouched. Edit the YAML in place.
 4. Translate the schedule into a 5-field cron (`minute hour dom month
@@ -37,7 +44,12 @@ Edit the jobs of a project registered with `ags`. The reference is
    style days of the month or a weekly job with a precheck.
 5. Write the prompt:
    - a shared prompt names no tool of this machine (agent, skill, issue
-     tracker): those go to the machine or local preprompt;
+     tracker): it states the intent in generic words ("dispatch it to a
+     dedicated worktree and tab", "open a ticket") and leaves the how
+     to the machine preprompt, which `ags` prepends to every run; read
+     it in `~/.config/ags/config.yml` first. When the preprompt lacks
+     the how, tell the user what to add to it rather than writing a
+     local override;
    - say what to do when there is nothing to report ("If there is
      nothing new, say so and stop");
    - long prompts go to `prompt_file: .ags/<job>.md`;
