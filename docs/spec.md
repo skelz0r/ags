@@ -352,6 +352,29 @@ usage.
   occurrence. Both show the run's report: its status, `awaited` while
   a `running` or `succeeded` run of an agent has none, `-` otherwise
   (a failed hand-off never reached the agent).
+- `ags feed [--project p] [--job j] [--since 24h] [--all]
+  [--no-follow]`: what the jobs produced, meant to stay open in a
+  terminal tab. One entry per outcome, oldest first: the agent's
+  report (`done`, `failed`, `blocked`, its summary and `--ref` on a
+  line of its own), a run that ended without one to wait for
+  (`succeeded` of a command with `report_within: never`), ags's own
+  failures (`FAILED`, `ERROR` for `precheck_error`, `MISSED`, with
+  their reason), and `no report` once a hand-off passed its command's
+  `report_within` without a report. Skips and `nothing` reports only
+  with `--all`. It prints the entries of the last `--since` (24h),
+  then follows: it polls `history.jsonl` every second, starts over
+  from the top when the file was truncated or replaced, and shows
+  each entry once, though a run comes back in the history with its
+  report (a later report of the same run is a new entry). A report
+  sent while the run is still `running` shows when the run ends, the
+  history having no line before. Colors only on a terminal, without
+  `NO_COLOR`; the summary wraps to the terminal's width, under its
+  column or on the next line when the terminal is narrow. With
+  `--json`, one envelope per line (`{"ok": true, "data": {"at",
+  "run", "project", "job", "source": "agent"|"ags", "status",
+  "summary", "ref"}}`), streamed: a single document could not be
+  read before the command ends. `--no-follow` prints the entries and
+  exits. It reads the state only, the daemon is unchanged.
 - `ags report <run> --status done|nothing|failed|blocked --summary
   text [--ref r]`: the agent's outcome, written into the run's
   `run.json` and logged in `daemon.log`. `done`: the work is done,

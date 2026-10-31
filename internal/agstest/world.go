@@ -2,8 +2,10 @@ package agstest
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -304,4 +306,73 @@ func Statuses(runs []Run) []string {
 
 func At(day, hour, minute, second int) time.Time {
 	return time.Date(2026, 10, day, hour, minute, second, 0, Paris)
+}
+
+type syncBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (b *syncBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Write(p)
+}
+
+func (b *syncBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.String()
+}
+
+type Feed struct {
+	t      *testing.T
+	out    *syncBuffer
+	cancel context.CancelFunc
+	done   chan int
+}
+
+func (w *World) Feed(args ...string) *Feed {
+	w.T.Helper()
+	ctx, cancel := context.WithCancel(context.Background())
+	now := w.Now
+	f := &Feed{t: w.T, out: &syncBuffer{}, cancel: cancel, done: make(chan int, 1)}
+	app := &cli.App{
+		Getenv:       w.getenv,
+		Stdin:        strings.NewReader(""),
+		Stdout:       f.out,
+		Stderr:       io.Discard,
+		Now:          func() time.Time { return now },
+		Notifier:     w.Notes,
+		Context:      ctx,
+		PollInterval: 10 * time.Millisecond,
+	}
+	go func() { f.done <- app.Run(append([]string{"feed"}, args...)) }()
+	w.T.Cleanup(f.Stop)
+	return f
+}
+
+func (f *Feed) Output() string { return f.out.String() }
+
+func (f *Feed) WaitFor(text string) string {
+	f.t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if out := f.Output(); strings.Contains(out, text) {
+			return out
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	f.t.Fatalf("feed never showed %q, got:\n%s", text, f.Output())
+	return ""
+}
+
+func (f *Feed) Stop() {
+	f.cancel()
+	select {
+	case <-f.done:
+	case <-time.After(5 * time.Second):
+		f.t.Fatal("feed did not stop")
+	}
+	f.done <- 0
 }
