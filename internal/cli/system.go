@@ -221,8 +221,7 @@ func DaemonAlive(st *state.State, now time.Time) (bool, string) {
 	return true, fmt.Sprintf("pid %d, last tick %s ago", st.Daemon.PID, age)
 }
 
-func brokenPrechecks(store *state.Store, now time.Time) []*state.Run {
-	runs, _ := store.ListRuns(state.Filter{})
+func brokenPrechecks(store *state.Store, runs []*state.Run, now time.Time) []*state.Run {
 	since := now.Add(-7 * 24 * time.Hour)
 	latest := map[string]*state.Run{}
 	for _, r := range runs {
@@ -243,11 +242,10 @@ func brokenPrechecks(store *state.Store, now time.Time) []*state.Run {
 	return broken
 }
 
-func unreportedRuns(store *state.Store, m *config.Machine, now time.Time) []*state.Run {
-	runs, _ := store.ListRuns(state.Filter{Status: state.StatusSucceeded})
+func unreportedRuns(runs []*state.Run, m *config.Machine, now time.Time) []*state.Run {
 	var unreported []*state.Run
 	for _, r := range runs {
-		if !r.AwaitsReport || r.Report != nil || r.StartedAt == nil {
+		if r.Status != state.StatusSucceeded || !r.AwaitsReport || r.Report != nil || r.StartedAt == nil {
 			continue
 		}
 		age, within := now.Sub(*r.StartedAt), reportWithin(m, r)
@@ -358,10 +356,11 @@ func (a *App) doctor(args []string) (result, error) {
 	for key, e := range st.ConfigErrors {
 		add("daemon sees "+key, false, "since %s: %s", e.Since.Local().Format(time.RFC3339), e.Message)
 	}
-	for _, r := range brokenPrechecks(store, a.Now()) {
+	runs, _ := store.ListRuns(state.Filter{})
+	for _, r := range brokenPrechecks(store, runs, a.Now()) {
 		add("precheck "+r.Key(), false, "%s at %s: %s, see ags show %s", r.Status, precheckRanAt(r).Local().Format(time.RFC3339), r.Reason, r.ID)
 	}
-	for _, r := range unreportedRuns(store, m, a.Now()) {
+	for _, r := range unreportedRuns(runs, m, a.Now()) {
 		add("report "+r.Key(), false, "run %s started %s, no ags report after %s, see ags show %s", r.ID, r.StartedAt.Local().Format(time.RFC3339), config.FormatDuration(reportWithin(m, r)), r.ID)
 	}
 	var b strings.Builder
