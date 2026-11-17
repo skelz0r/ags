@@ -69,6 +69,12 @@ func (c client) projects() ([]project, error) {
 	return ps, err
 }
 
+func (c client) attention() (cli.Attention, error) {
+	var at cli.Attention
+	_, err := c.call(&at, "attention")
+	return at, err
+}
+
 func (c client) runs(filters ...string) ([]cli.RunView, error) {
 	var rs []cli.RunView
 	_, err := c.call(&rs, append([]string{"runs", "--limit", "200"}, filters...)...)

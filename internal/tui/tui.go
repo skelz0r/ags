@@ -18,7 +18,8 @@ import (
 type screen int
 
 const (
-	screenProjects screen = iota
+	screenAttention screen = iota
+	screenProjects
 	screenJobs
 	screenRuns
 	screenDetail
@@ -51,22 +52,24 @@ type model struct {
 	width  int
 	height int
 
-	screen   screen
-	projects []project
-	project  string
-	jobs     []cli.JobView
-	runs     []cli.RunView
-	runsJob  string
-	detail   []string
-	approve  []pendingApproval
-	cursor   map[screen]int
-	scroll   int
-	status   status
-	message  string
-	isError  bool
-	prompt   *prompt
-	confirm  *confirm
-	previous []screen
+	screen    screen
+	attention cli.Attention
+	projects  []project
+	project   string
+	jobs      []cli.JobView
+	runs      []cli.RunView
+	runsJob   string
+	detail    []string
+	approve   []pendingApproval
+	target    string
+	cursor    map[screen]int
+	scroll    int
+	status    status
+	message   string
+	isError   bool
+	prompt    *prompt
+	confirm   *confirm
+	previous  []screen
 }
 
 type refreshMsg struct{}
@@ -93,6 +96,11 @@ func tick() tea.Cmd {
 
 func (m *model) reload() {
 	m.status = m.c.daemonStatus()
+	if at, err := m.c.attention(); err != nil {
+		m.fail(err)
+	} else {
+		m.attention = at
+	}
 	projects, err := m.c.projects()
 	if err != nil {
 		m.fail(err)
@@ -124,6 +132,8 @@ func (m *model) info(format string, args ...any) {
 
 func (m *model) rows() int {
 	switch m.screen {
+	case screenAttention:
+		return len(m.attention.Items) + len(m.attention.Recent)
 	case screenProjects:
 		return len(m.projects)
 	case screenJobs:
@@ -157,6 +167,7 @@ func (m *model) back() {
 	m.screen = m.previous[len(m.previous)-1]
 	m.previous = m.previous[:len(m.previous)-1]
 	m.scroll = 0
+	m.clamp()
 }
 
 func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -252,7 +263,7 @@ func (m *model) run(message string, args ...string) tea.Cmd {
 func (m *model) updateKey(key string) tea.Cmd {
 	switch key {
 	case "q":
-		if m.screen == screenProjects {
+		if len(m.previous) == 0 {
 			return tea.Quit
 		}
 		m.back()
@@ -283,6 +294,8 @@ func (m *model) updateKey(key string) tea.Cmd {
 		return nil
 	}
 	switch m.screen {
+	case screenAttention:
+		return m.attentionKey(key)
 	case screenProjects:
 		return m.projectsKey(key)
 	case screenJobs:
@@ -299,7 +312,7 @@ func (m *model) updateKey(key string) tea.Cmd {
 		}
 	case screenApprove:
 		if key == "y" {
-			target := m.project
+			target := m.target
 			var reviewed []string
 			for _, p := range m.approve {
 				reviewed = append(reviewed, p.Fingerprint)
@@ -377,18 +390,23 @@ func (m *model) jobsKey(key string) tea.Cmd {
 			return m.runNow(j.Key)
 		}
 	case "A":
-		pending, err := m.c.pending(m.project)
-		if err != nil {
-			m.fail(err)
-			return nil
-		}
-		if len(pending) == 0 {
-			m.info("nothing to approve")
-			return nil
-		}
-		m.approve = pending
-		m.push(screenApprove)
+		return m.review(m.project)
 	}
+	return nil
+}
+
+func (m *model) review(target string) tea.Cmd {
+	pending, err := m.c.pending(target)
+	if err != nil {
+		m.fail(err)
+		return nil
+	}
+	if len(pending) == 0 {
+		m.info("nothing to approve")
+		return nil
+	}
+	m.approve, m.target = pending, target
+	m.push(screenApprove)
 	return nil
 }
 
@@ -476,9 +494,11 @@ func (m *model) body() string {
 				lines = append(lines, l)
 			}
 		}
-		return m.scrolled(titleStyle.Render("Approve "+m.project)+dimStyle.Render("  y approve all, esc cancel")+"\n", lines)
+		return m.scrolled(titleStyle.Render("Approve "+m.target)+dimStyle.Render("  y approve all, esc cancel")+"\n", lines)
+	case screenProjects:
+		return m.projectsView()
 	}
-	return m.projectsView()
+	return m.attentionView()
 }
 
 func (m *model) scrolled(header string, lines []string) string {
@@ -531,7 +551,7 @@ func (m *model) projectsView() string {
 		rows = append(rows, fmt.Sprintf("%-24s %-8s %-16s %s", trunc(p.Name, 24), jobs, next, lastFailure))
 	}
 	header := fmt.Sprintf("%-24s %-8s %-16s %s", "PROJECT", "JOBS", "NEXT RUN", "LAST FAILURE")
-	out := titleStyle.Render("Projects") + dimStyle.Render("  enter open, a add, d remove, R all runs, q quit") + "\n" + m.table(header, rows, m.cursor[screenProjects])
+	out := titleStyle.Render("Projects") + dimStyle.Render("  enter open, a add, d remove, R all runs, esc attention") + "\n" + m.table(header, rows, m.cursor[screenProjects])
 	if p := m.selectedProject(); p != nil {
 		for _, e := range p.Errors {
 			out += errorStyle.Render(e.String()) + "\n"

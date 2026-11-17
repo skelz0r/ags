@@ -81,9 +81,10 @@ Read-only, one line per check, `FAIL ... -> fix: <command>`. Run it after
 - TUI: `.claude/skills/verify-ags/scripts/sandbox tui <name> [keys...]`
   opens it in a detached tmux (160x32, own socket), sends the keys
   (tmux names: `Enter`, `Escape`, `Down`, letters), saves the screen as
-  text in `tmp/qa/evidence/tui/<name>.txt`. Screens: projects (start),
-  `Enter` jobs of the selected project, `R` all runs, `Enter` on a run its
-  detail, `A` approve, `r` run now, `p` pause, `e` edit.
+  text in `tmp/qa/evidence/tui/<name>.txt`. Screens: attention (start:
+  `enter` the line's run, `r`, `p`, `A`, `o` on its job), `P` projects,
+  then `Enter` jobs of the selected project, `R` all runs, `Enter` on a
+  run its detail, `A` approve, `r` run now, `p` pause, `e` edit.
 - Time: the daemon ticks every 30s on the real clock. Scheduling logic
   (catch-up, DST, missed runs) is proven by the tests, which drive the
   clock (`agstest.World.Tick`), not by waiting in the sandbox.
@@ -97,7 +98,7 @@ Read-only, one line per check, `FAIL ... -> fix: <command>`. Run it after
    everything; no Go file touched falls back to `go test ./...`), prints
    why each was picked, the touched packages no test reaches, and the
    tests naming a changed exported func. `QA_SCREENSHOTS=1` also captures
-   `doctor`, `projects`, `jobs`, `runs` and four TUI screens of the
+   `doctor`, `attention`, `projects`, `jobs`, `runs` and five TUI screens of the
    sandbox (started and stopped by `bin/qa` if it was not up). Read the 2
    or 3 captures the change shows.
 2. A behaviour no test covers in `internal/cli` or `internal/daemon`:

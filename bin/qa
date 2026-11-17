@@ -135,16 +135,17 @@ if [ "${QA_SCREENSHOTS:-}" = 1 ]; then
     "$sandbox_script" up >"$evidence/sandbox-up.txt" 2>&1
     started=true
   fi
-  for cmd in doctor projects jobs runs; do
+  for cmd in doctor attention projects jobs runs; do
     "$sandbox/ags" "$cmd" >"$evidence/cli-$cmd.txt" 2>&1 || true
   done
   export QA_EVIDENCE=$evidence
-  "$sandbox_script" tui tui-projects >/dev/null
-  "$sandbox_script" tui tui-jobs Enter >/dev/null
+  "$sandbox_script" tui tui-attention >/dev/null
+  "$sandbox_script" tui tui-projects P >/dev/null
+  "$sandbox_script" tui tui-jobs P Enter >/dev/null
   "$sandbox_script" tui tui-runs R >/dev/null
   "$sandbox_script" tui tui-run-detail R Enter >/dev/null
   $started && "$sandbox_script" down >/dev/null
-  echo "captures: cli-{doctor,projects,jobs,runs}.txt, tui-{projects,jobs,runs,run-detail}.txt"
+  echo "captures: cli-{doctor,attention,projects,jobs,runs}.txt, tui-{attention,projects,jobs,runs,run-detail}.txt"
 fi
 
 echo "evidence: $evidence"
