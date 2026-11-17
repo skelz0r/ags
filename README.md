@@ -405,6 +405,10 @@ running, with the `PATH` of the shell it runs from:
 
 `XDG_CONFIG_HOME` and `XDG_STATE_HOME` are honoured on both.
 
+With [herdr](https://herdr.dev) in `PATH`, `ags install` also links a
+herdr plugin: its global action "ags board" opens the TUI in a
+full-screen popup.
+
 Shell completion of commands, flags, projects, jobs and runs, in
 `~/.zshrc` after `compinit`:
 

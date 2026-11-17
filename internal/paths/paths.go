@@ -62,6 +62,7 @@ func (p Paths) History() string       { return filepath.Join(p.StateDir, "histor
 func (p Paths) DaemonLog() string     { return filepath.Join(p.StateDir, "daemon.log") }
 func (p Paths) DaemonLock() string    { return filepath.Join(p.StateDir, "daemon.lock") }
 func (p Paths) SkillsCopy() string    { return filepath.Join(p.StateDir, "skills") }
+func (p Paths) HerdrPlugin() string   { return filepath.Join(p.StateDir, "herdr-plugin") }
 func (p Paths) ServiceFile() string   { return filepath.Join(p.ServiceDir, service.File) }
 
 func ExpandHome(path, home string) string {
