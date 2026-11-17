@@ -411,6 +411,39 @@ usage.
   found, no job whose latest precheck crashed (`precheck_error` in the
   last 7 days), no `succeeded` run of the last 7 days still without a
   report past its command's `report_within`.
+- `ags attention`: what waits for you, read-only, the TUI's home
+  screen. One item per job and kind, a series counted once (20
+  `precheck_error` of a job are one item, `failing since 3d, x20`),
+  most urgent kind first, then newest:
+  - `daemon`: not alive (its last tick, from `ags doctor`);
+  - `config`: an invalid machine or project file, with file and line;
+  - `precheck_error`: the job's latest precheck crashed, within 7 days,
+    with the start of the series and its count (as `ags doctor`);
+  - `failed`: the job's latest ended command failed, within 7 days;
+  - `blocked`, `agent_failed`: the job's latest settled run, within 7
+    days, reported `blocked` or `failed`, with its ref. A run settles
+    when it has a report, or succeeded without awaiting one: a later
+    hand-off still awaiting its report leaves the item;
+  - `no_report`: hand-offs past their command's `report_within`
+    without a report (as `ags doctor`), started after the job's latest
+    settled run;
+  - `missed`: the job's latest entries are `missed`, the last one
+    within 7 days, with the count of occurrences: the job has not run
+    since. Occurrences missed before a run that caught up are not
+    listed, the job ran;
+  - `unapproved`: an enabled shared job never approved or changed
+    since, with its `fingerprint` (what `ags approve --fingerprints`
+    expects), file and line.
+  A job's entries are read in the order they happened (a manual run
+  or a catch-up started out of schedule order counts when it ran).
+  Items of a job no longer in its project are left out; an invalid
+  project keeps the items of all its jobs, which cannot be listed. A
+  `recent` section lists the `done` reports of the last 24 h, as
+  `ags feed` entries. With `--json`: `{"daemon": {"alive", "detail",
+  "last_tick"}, "items": [{"kind", "key", "project", "job", "count",
+  "since", "last", "summary", "run", "ref", "file", "line",
+  "fingerprint"}], "recent": [feed entries]}`, fields empty for a
+  kind omitted. Exits 0 whatever waits: a consumer reads `items`.
 - `ags completion zsh`: prints the zsh completion script. Bash is
   left out: its word splitting on `=` and `:` and its quoting made
   every candidate insertion a special case.

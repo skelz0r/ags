@@ -117,6 +117,7 @@ func init() {
 		"uninstall":  {run: (*App).uninstall, editing: true, summary: "uninstall"},
 		"daemon":     {run: (*App).daemon, summary: "daemon"},
 		"doctor":     {run: (*App).doctor, summary: "doctor"},
+		"attention":  {run: (*App).attention, summary: "attention"},
 		"completion": {run: (*App).completion, summary: "completion zsh"},
 	}
 }
@@ -199,7 +200,7 @@ func (a *App) refuseInsideRun(name string) error {
 	return nil
 }
 
-var commandOrder = []string{"add", "remove", "projects", "validate", "jobs", "next", "run", "runs", "show", "feed", "report", "pause", "resume", "approve", "new", "edit", "delete", "install", "uninstall", "daemon", "doctor", "completion"}
+var commandOrder = []string{"add", "remove", "projects", "validate", "jobs", "next", "run", "runs", "show", "feed", "report", "pause", "resume", "approve", "new", "edit", "delete", "install", "uninstall", "daemon", "doctor", "attention", "completion"}
 
 func helpText() string {
 	var b strings.Builder
