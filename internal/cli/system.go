@@ -88,6 +88,10 @@ func (a *App) install(args []string) (result, error) {
 		return result{}, err
 	}
 	fmt.Fprintf(&b, "linked skills %s into %s\n", strings.Join(skills, ", "), a.paths.ClaudeSkills)
+	herdr, err := a.installHerdrPlugin(exe, &b)
+	if err != nil {
+		return result{}, err
+	}
 	if err := config.WriteFileAtomic(a.paths.ServiceFile(), a.daemonService(exe).Definition(), 0o644); err != nil {
 		return result{}, err
 	}
@@ -102,7 +106,7 @@ func (a *App) install(args []string) (result, error) {
 		loaded = true
 		fmt.Fprintf(&b, "%s %s loaded\n", service.Kind, service.Name)
 	}
-	return result{data: map[string]any{"service_file": a.paths.ServiceFile(), "executable": exe, "skills": skills, "loaded": loaded}, text: b.String()}, nil
+	return result{data: map[string]any{"service_file": a.paths.ServiceFile(), "executable": exe, "skills": skills, "herdr_plugin": herdr, "loaded": loaded}, text: b.String()}, nil
 }
 
 func (a *App) installSkills() ([]string, error) {
@@ -172,8 +176,9 @@ func (a *App) uninstall(args []string) (result, error) {
 			fmt.Fprintf(&b, "removed %s\n", link)
 		}
 	}
+	herdr := a.uninstallHerdrPlugin(&b)
 	b.WriteString("config, registry and history are kept")
-	return result{data: map[string]any{"service_file": a.paths.ServiceFile()}, text: b.String()}, nil
+	return result{data: map[string]any{"service_file": a.paths.ServiceFile(), "herdr_plugin": herdr}, text: b.String()}, nil
 }
 
 func (a *App) daemon(args []string) (result, error) {

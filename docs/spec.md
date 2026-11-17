@@ -44,8 +44,9 @@ preprompt) and an unversioned `.ags.local.yml`.
 - **macOS and Linux**: the service is a launchd LaunchAgent on macOS
   and a systemd user unit on Linux, picked at build time; the rest of
   the tool is the same POSIX code on both.
-- **A standalone TUI** for now; a herdr plugin (board overlay, run now)
-  can come later on top of the same CLI.
+- **A standalone TUI, also shown by a herdr plugin**: the plugin only
+  opens the TUI in a full-screen popup, everything else stays in the
+  binary.
 
 ## Concepts
 
@@ -72,6 +73,7 @@ preprompt) and an unversioned `.ags.local.yml`.
 | `~/.local/state/ags/` | `state.json` (cursors, approved jobs, last successes), `runs/`, `jobs/` (one directory per job, for its precheck and command), `history.jsonl`, `daemon.log`, `daemon.lock` | no |
 | `~/Library/LaunchAgents/dev.ags.plist` | macOS: the launchd agent, written by `ags install` | no |
 | `~/.config/systemd/user/ags.service` | Linux: the systemd user unit, written by `ags install` | no |
+| `~/.local/state/ags/herdr-plugin/` | the herdr plugin, written by `ags install` | no |
 
 `XDG_CONFIG_HOME` and `XDG_STATE_HOME`, when set to an absolute path,
 replace `~/.config` and `~/.local/state` above, the systemd unit
@@ -404,7 +406,22 @@ usage.
   and skills linked into `~/.claude/skills`. The
   skills are embedded in the binary and copied to `skills/` in the
   state directory, which the links point to. `install` also writes a
-  starter machine config when there is none.
+  starter machine config when there is none, and the herdr plugin
+  (below).
+- The herdr plugin `dev.ags`, in `herdr-plugin/` of the state
+  directory: a global action "ags board" that opens the TUI in a
+  full-screen popup (`[[panes]] placement = "popup"`). The popup runs
+  `bin/board`, which execs this binary by its absolute path with the
+  service's environment (`PATH`, `HOME`, `XDG_*` or `AGS_HOME`):
+  herdr starts plugin commands with its own `PATH`, which usually
+  lacks the directory `ags` was installed in. `install` links it with
+  `herdr plugin link` when `herdr` is in `PATH`, relinks it when herdr
+  points at another directory (an older state directory), rewrites it
+  otherwise; `uninstall` unlinks it, then removes the directory, kept
+  when the unlink fails. Under `AGS_HOME` it is written, never linked.
+  A failing link is a warning, not an error: both commands return
+  `herdr_plugin` (`dir`, `linked`, `warning`) in their data. No sidebar counter: herdr plugins only lay
+  out the agents' rows there.
 - `ags daemon`: the foreground loop the service runs.
 - `ags doctor`: service loaded (running, on Linux), daemon alive, last tick, every
   project path present and its files valid, every command's program
@@ -647,7 +664,6 @@ What the tool guarantees, and nothing more:
 - Event triggers, remote machines, Windows.
 - Jitter, global concurrency tuning, quota-aware scheduling, waking the
   machine.
-- A herdr plugin (board, run-now action): later, on top of the CLI.
 - Any personal dispatcher or hand-off script: it is a command like any
   other, maintained outside this project.
 
