@@ -412,11 +412,14 @@ Shell completion of commands, flags, projects, jobs and runs, in
 source <(ags completion zsh)
 ```
 
-`ags` alone opens the TUI: projects, their jobs (next run, last status,
-approval), and every run with its prompt and output.
+`ags` alone opens the TUI on what waits for you (failing prechecks,
+blocked reports, hand-offs without report, jobs to approve, config
+errors, the day's done reports; `ags attention` prints the same), then
+projects, their jobs (next run, last status, approval), and every run
+with its prompt and output.
 
 <p align="center">
-  <img src="docs/screenshots/tui-projects.png" width="400" alt="TUI home: registered projects with their next run and last failure">
+  <img src="docs/screenshots/tui-projects.png" width="400" alt="TUI projects screen: registered projects with their next run and last failure">
   &nbsp;
   <img src="docs/screenshots/tui-runs.png" width="400" alt="TUI: every run, newest first, with trigger, status and duration">
 </p>

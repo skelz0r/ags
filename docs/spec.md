@@ -304,10 +304,18 @@ machine without you seeing it.
 
 `ags` with no argument opens it.
 
-- **Projects** (home screen): every registered project with its number
+- **Attention** (home screen): the items of `ags attention`, most
+  urgent first, then the `done` reports of the last 24 h, or "Nothing
+  waits for you". `enter` shows the item's run, or the diff to approve
+  for an `unapproved` job, or the jobs of the project of a config
+  error; `r` run now, `p` pause / resume, `A` approve the job (diff and
+  fingerprints, as below), `o` open the ref (`open`, `xdg-open` on
+  Linux, http(s) only, otherwise shown), `J` the jobs of the project,
+  `P` (or `tab`) Projects, `q` quit.
+- **Projects**: every registered project with its number
   of jobs, the next run and the last failure. `a` add a project (path
   prompt, `~` allowed), `d` remove it (with confirmation, history
-  kept), `enter` open it.
+  kept), `enter` open it, `esc` back to Attention.
 - **Jobs of a project**: name, schedule in words ("Mondays 09:30"),
   command, origin (shared or local), next run, last run and its status,
   paused and approval state. `n` new job, `e` edit (opens `$EDITOR` on the file at
