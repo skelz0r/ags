@@ -29,6 +29,15 @@ type ConfigError struct {
 	Since   time.Time `json:"since"`
 }
 
+type NavetteItem struct {
+	Title       string    `json:"title"`
+	Dir         string    `json:"dir,omitempty"`
+	Signature   string    `json:"signature"`
+	Since       time.Time `json:"since,omitempty"`
+	Description string    `json:"description"`
+	PostedAt    time.Time `json:"posted_at"`
+}
+
 type State struct {
 	Cursors         map[string]time.Time   `json:"cursors"`
 	CursorSchedules map[string]string      `json:"cursor_schedules"`
@@ -36,6 +45,7 @@ type State struct {
 	Approvals       map[string]Approval    `json:"approvals"`
 	Notified        map[string]string      `json:"notified"`
 	ConfigErrors    map[string]ConfigError `json:"config_errors"`
+	Navette         map[string]NavetteItem `json:"navette,omitempty"`
 	Daemon          Daemon                 `json:"daemon"`
 	LastPrune       time.Time              `json:"last_prune"`
 }
@@ -58,6 +68,9 @@ func (s *State) init() {
 	}
 	if s.ConfigErrors == nil {
 		s.ConfigErrors = map[string]ConfigError{}
+	}
+	if s.Navette == nil {
+		s.Navette = map[string]NavetteItem{}
 	}
 }
 

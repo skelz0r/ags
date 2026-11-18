@@ -380,6 +380,29 @@ func (s *Store) ListRuns(f Filter) ([]*Run, error) {
 	return runs, nil
 }
 
+func (s *Store) RecentRuns(project, job string, limit int) []*Run {
+	jobDir := filepath.Join(s.Paths.RunsDir(), project, job)
+	entries, _ := os.ReadDir(jobDir)
+	var runs []*Run
+	for i := len(entries) - 1; i >= 0 && len(runs) < limit; i-- {
+		if !entries[i].IsDir() {
+			continue
+		}
+		if r, err := readRun(filepath.Join(jobDir, entries[i].Name(), "run.json")); err == nil {
+			runs = append(runs, r)
+		}
+	}
+	sort.SliceStable(runs, func(i, j int) bool { return OccurredAt(runs[i]).After(OccurredAt(runs[j])) })
+	return runs
+}
+
+func OccurredAt(r *Run) time.Time {
+	if r.MissedLast != nil && r.MissedLast.After(r.LastScheduled()) {
+		return *r.MissedLast
+	}
+	return r.LastScheduled()
+}
+
 func (r *Run) Unreported(within time.Duration, now time.Time) bool {
 	if r.Status != StatusSucceeded || !r.AwaitsReport || r.Report != nil || r.StartedAt == nil || within <= 0 {
 		return false

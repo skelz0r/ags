@@ -112,18 +112,26 @@ commands:
     stdin: prompt
 
 notifications:
-  on: [failed, missed, precheck_error, invalid, unapproved]
-  channels: [desktop]
+  on: [failed, missed, precheck_error, invalid, unapproved, no_report]
+  channels: [desktop, navette]
 
 precheck_timeout: 60s
 ```
 
 `notifications.on` takes `failed`, `missed`, `precheck_error`,
-`invalid` (a config error) and `unapproved`; all of them by default.
-`channels` takes `desktop` (a macOS notification through `osascript`,
-on Linux `notify-send`, silently nothing when it is not installed;
-`macos` is an older name for it) or nothing, `[]`, to turn
-notifications off. `precheck_timeout` defaults to 60 s. Durations are written `30s`,
+`invalid` (a config error), `unapproved` and `no_report` (a hand-off
+with no `ags report` past the command's `report_within`); all of them
+by default. `channels` takes any of:
+
+- `desktop`: a macOS notification through `osascript`, on Linux
+  `notify-send`, silently nothing when it is not installed; `macos` is
+  an older name for it. One notification per event; `no_report` is not
+  sent there.
+- `navette`: the daemon runs `navette post` (found in the `PATH` the
+  daemon was installed with) to keep one inbox item per job that has a
+  problem, see below.
+
+`[]` turns notifications off. `precheck_timeout` defaults to 60 s. Durations are written `30s`,
 `45m`, `12h` or `2d`.
 
 `handoff` stands for any script that gives the prompt to an agent
@@ -606,6 +614,40 @@ Error codes: `usage`, `invalid_config` (both exit 2), `not_found`,
 - Notifications on `failed`, `missed`, `precheck_error` and config
   errors, through desktop notifications; one notification per distinct
   error, not per tick. A succeeded run does not notify.
+- The `navette` channel is level-triggered: each tick the daemon
+  derives, from the state and the last 30 entries of each job, what is
+  wrong now, and posts only what changed since its last post.
+  - One item per job, key `ags:<project>:<job>`, type `ags`; one per
+    config error, key `ags:<project>:@config` (`ags:machine:@config`,
+    `ags:registry:@config`). A job's problem is, first that applies:
+    `unapproved`; then the latest entry that counts (running entries
+    and skips other than a precheck's are ignored) when it is a
+    `precheck_error` or `failed` streak (a `missed` in between does not
+    break it), a `missed` streak, or a succeeded hand-off without
+    report past `report_within` (any hand-off in the window, so the
+    next occurrence does not hide it). A problem older than 7 days
+    opens no item; an item already open stays open until resolved.
+  - `waiting` when you have to act, `info` for `missed`. The description
+    says since when, how many runs, the last short reason and the run
+    id for `ags show`; a new streak posts at once, a growing count at
+    most once an hour. A streak longer than the 30 entries keeps the
+    start recorded when its item opened.
+  - Once the problem is gone (precheck passes, run succeeds, approved,
+    reported, config fixed, job paused or removed) the item is posted
+    `done`.
+  - Never `--option` nor `--notify`: the click would come back to a
+    pane, and the daemon has none; `CLAUDE_CODE_BRIDGE_SESSION_ID` and
+    `HERDR_PANE_ID` are removed from its environment. `navette` runs
+    from the project directory, so the item gets the project's tag.
+  - A failing `navette post` (binary missing, server down, 20 s
+    timeout) never blocks a tick nor the desktop channel: the daemon
+    logs it once, retries 5 minutes later, and records an item as
+    posted only once it was. `ags doctor` checks that `navette` is
+    found when the channel is on, in the shell's `PATH`: the daemon
+    uses the one it was installed with, and logs in `daemon.log` when
+    it cannot find it.
+  - A daemon that stopped cannot post about itself: that needs a watch
+    from outside.
 
 ## Skills
 
@@ -675,6 +717,14 @@ What the tool guarantees, and nothing more:
   YAML or the state;
 - run directories, which hold prompts and outputs, are readable by you
   only.
+
+What leaves the Mac: only the `navette` channel, to your navette
+server. An item holds the project and job names, the status, dates,
+counts, a run id, the short reason (an exit code, a timeout: never
+the precheck's stderr or stdout) and, for a config error, its first
+line (file, line and what is wrong, which may quote a key of the
+file). Never a prompt, a command's output nor anything from a run
+directory.
 
 ## Out of scope
 

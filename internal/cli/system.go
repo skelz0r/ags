@@ -36,7 +36,7 @@ commands:
     timeout: 45m
 
 notifications:
-  on: [failed, missed, precheck_error, invalid, unapproved]
+  on: [failed, missed, precheck_error, invalid, unapproved, no_report]
   channels: [desktop]
 `
 
@@ -190,7 +190,7 @@ func (a *App) daemon(args []string) (result, error) {
 		return result{}, err
 	}
 	defer log.Close()
-	d, err := daemon.New(daemon.Options{Paths: a.paths, Notifier: a.Notifier, Log: log, Now: a.Now})
+	d, err := daemon.New(daemon.Options{Paths: a.paths, Notifier: a.Notifier, Navette: notify.Navette{Getenv: a.Getenv}, Log: log, Now: a.Now})
 	if err != nil {
 		return result{}, err
 	}

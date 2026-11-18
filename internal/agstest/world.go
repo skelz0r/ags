@@ -16,6 +16,7 @@ import (
 
 	"github.com/skelz0r/ags/internal/cli"
 	"github.com/skelz0r/ags/internal/daemon"
+	"github.com/skelz0r/ags/internal/notify"
 	"github.com/skelz0r/ags/internal/paths"
 )
 
@@ -126,7 +127,9 @@ func New(t *testing.T) *World {
 		Notes:      &Recorder{},
 		Now:        time.Date(2026, 10, 19, 8, 0, 0, 0, Paris),
 	}
-	w.Env = map[string]string{"AGS_HOME": filepath.Join(root, "ags"), "HOME": w.Home, "PATH": os.Getenv("PATH")}
+	w.Env = map[string]string{"AGS_HOME": filepath.Join(root, "ags"), "HOME": w.Home, "PATH": filepath.Join(root, "bin") + string(os.PathListSeparator) + os.Getenv("PATH")}
+	w.Write(filepath.Join(root, "bin", "navette"), fakeNavette(root))
+	os.Chmod(filepath.Join(root, "bin", "navette"), 0o755)
 	w.Paths = paths.Resolve(w.getenv)
 	for _, dir := range []string{w.Home, w.ProjectDir, w.Paths.ConfigDir} {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -236,7 +239,7 @@ func (w *World) Daemon() *daemon.Daemon {
 		w.T.Fatal(err)
 	}
 	w.T.Cleanup(func() { log.Close() })
-	d, err := daemon.New(daemon.Options{Paths: w.Paths, Notifier: w.Notes, Log: log, Now: func() time.Time { return w.Now }})
+	d, err := daemon.New(daemon.Options{Paths: w.Paths, Notifier: w.Notes, Navette: notify.Navette{Getenv: w.getenv}, Log: log, Now: func() time.Time { return w.Now }})
 	if err != nil {
 		w.T.Fatal(err)
 	}
@@ -375,4 +378,90 @@ func (f *Feed) Stop() {
 		f.t.Fatal("feed did not stop")
 	}
 	f.done <- 0
+}
+
+func fakeNavette(root string) string {
+	return fmt.Sprintf(`#!/bin/sh
+{
+  printf 'cwd=%%s\0' "$PWD"
+  printf 'bridge=%%s\0' "${CLAUDE_CODE_BRIDGE_SESSION_ID-unset}"
+  printf 'pane=%%s\0' "${HERDR_PANE_ID-unset}"
+  if [ -e %[1]s/navette.down ]; then printf 'failed=yes\0'; fi
+  printf '%%s\0' "$@"
+  printf '\036'
+} >> %[1]s/navette.log
+if [ -e %[1]s/navette.down ]; then echo "navette: server unreachable" >&2; exit 1; fi
+echo "Item 1 (fake)"
+`, root)
+}
+
+type NavettePost struct {
+	Cwd, Bridge, Pane string
+	Failed            bool
+	Args              []string
+	Flags             map[string]string
+}
+
+func (w *World) EnableNavette() {
+	w.T.Helper()
+	w.Write(w.Paths.MachineConfig(), strings.Replace(strings.Replace(MachineConfig,
+		"channels: [desktop]", "channels: [desktop, navette]", 1),
+		"unapproved]", "unapproved, no_report]", 1))
+}
+
+func (w *World) NavetteDown(down bool) {
+	w.T.Helper()
+	flag := filepath.Join(w.Root, "navette.down")
+	if down {
+		w.Write(flag, "")
+	} else {
+		os.Remove(flag)
+	}
+}
+
+func (w *World) NavettePosts() []NavettePost {
+	w.T.Helper()
+	data, err := os.ReadFile(filepath.Join(w.Root, "navette.log"))
+	if err != nil {
+		return nil
+	}
+	var posts []NavettePost
+	for _, record := range strings.Split(strings.TrimSuffix(string(data), "\x1e"), "\x1e") {
+		fields := strings.Split(strings.TrimSuffix(record, "\x00"), "\x00")
+		p := NavettePost{Flags: map[string]string{}}
+		for len(fields) > 0 {
+			name, value, ok := strings.Cut(fields[0], "=")
+			if !ok || !map[string]bool{"cwd": true, "bridge": true, "pane": true, "failed": true}[name] {
+				break
+			}
+			switch name {
+			case "cwd":
+				p.Cwd = value
+			case "bridge":
+				p.Bridge = value
+			case "pane":
+				p.Pane = value
+			case "failed":
+				p.Failed = true
+			}
+			fields = fields[1:]
+		}
+		p.Args = fields
+		for i := 1; i+1 < len(fields); i += 2 {
+			p.Flags[fields[i]] = fields[i+1]
+		}
+		posts = append(posts, p)
+	}
+	return posts
+}
+
+func (w *World) NavettePostsFor(key string) []NavettePost {
+	w.T.Helper()
+	var posts []NavettePost
+	for _, p := range w.NavettePosts() {
+		if p.Flags["--key"] == key && !p.Failed {
+			posts = append(posts, p)
+		}
+	}
+	return posts
 }
