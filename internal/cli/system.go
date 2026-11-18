@@ -245,23 +245,12 @@ func brokenPrechecks(store *state.Store, runs []*state.Run, now time.Time) []*st
 func unreportedRuns(runs []*state.Run, m *config.Machine, now time.Time) []*state.Run {
 	var unreported []*state.Run
 	for _, r := range runs {
-		if r.Status != state.StatusSucceeded || !r.AwaitsReport || r.Report != nil || r.StartedAt == nil {
-			continue
-		}
-		age, within := now.Sub(*r.StartedAt), reportWithin(m, r)
-		if within > 0 && age > within && age <= 7*24*time.Hour {
+		if r.Unreported(m.ReportWithin(r.Command), now) {
 			unreported = append(unreported, r)
 		}
 	}
 	sort.Slice(unreported, func(i, j int) bool { return unreported[i].ID < unreported[j].ID })
 	return unreported
-}
-
-func reportWithin(m *config.Machine, r *state.Run) time.Duration {
-	if cmd := m.Commands[r.Command]; cmd != nil {
-		return cmd.ReportWithin
-	}
-	return config.DefaultReportWithin
 }
 
 func precheckRan(store *state.Store, r *state.Run) bool {
@@ -361,7 +350,7 @@ func (a *App) doctor(args []string) (result, error) {
 		add("precheck "+r.Key(), false, "%s at %s: %s, see ags show %s", r.Status, precheckRanAt(r).Local().Format(time.RFC3339), r.Reason, r.ID)
 	}
 	for _, r := range unreportedRuns(runs, m, a.Now()) {
-		add("report "+r.Key(), false, "run %s started %s, no ags report after %s, see ags show %s", r.ID, r.StartedAt.Local().Format(time.RFC3339), config.FormatDuration(reportWithin(m, r)), r.ID)
+		add("report "+r.Key(), false, "run %s started %s, no ags report after %s, see ags show %s", r.ID, r.StartedAt.Local().Format(time.RFC3339), config.FormatDuration(m.ReportWithin(r.Command)), r.ID)
 	}
 	var b strings.Builder
 	failed := 0

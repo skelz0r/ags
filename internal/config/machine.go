@@ -59,6 +59,13 @@ func (m *Machine) Notifies(event string) bool {
 	return false
 }
 
+func (m *Machine) ReportWithin(command string) time.Duration {
+	if cmd := m.Commands[command]; cmd != nil {
+		return cmd.ReportWithin
+	}
+	return DefaultReportWithin
+}
+
 var defaultNotifications = Notifications{
 	On:       []string{"failed", "missed", "precheck_error", "invalid", "unapproved"},
 	Channels: []string{"desktop"},

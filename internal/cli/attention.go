@@ -298,7 +298,7 @@ func noReportItem(history, unreported []*state.Run, m *config.Machine) (Attentio
 	item := jobItem(AttentionNoReport, open[0])
 	item.Count = len(open)
 	item.span(*open[len(open)-1].StartedAt, *open[0].StartedAt)
-	item.Summary = fmt.Sprintf("handed off, no ags report within %s", config.FormatDuration(reportWithin(m, open[0])))
+	item.Summary = fmt.Sprintf("handed off, no ags report within %s", config.FormatDuration(m.ReportWithin(open[0].Command)))
 	return item, true
 }
 
