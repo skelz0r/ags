@@ -486,3 +486,31 @@ func ProcessAlive(pid int) bool {
 	err = p.Signal(syscallZero)
 	return err == nil || errors.Is(err, fs.ErrPermission)
 }
+
+func (s *Store) PrecheckRan(r *Run) bool {
+	switch {
+	case r.Status == StatusPrecheckError, r.Status == StatusSkipped && strings.HasPrefix(r.Reason, ReasonPrecheck):
+		return true
+	case r.Status == StatusSucceeded, r.Status == StatusFailed:
+		_, err := os.Stat(filepath.Join(s.RunDir(r), "precheck.log"))
+		return err == nil
+	}
+	return false
+}
+
+func (r *Run) PrecheckRanAt() time.Time {
+	switch {
+	case r.SkippedLast != nil:
+		return *r.SkippedLast
+	case r.StartedAt != nil:
+		return *r.StartedAt
+	}
+	return r.ScheduledFor
+}
+
+func (r *Run) HappenedAt() time.Time {
+	if r.MissedLast != nil && r.SkippedLast == nil {
+		return *r.MissedLast
+	}
+	return r.PrecheckRanAt()
+}

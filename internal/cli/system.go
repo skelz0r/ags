@@ -226,10 +226,10 @@ func brokenPrechecks(store *state.Store, runs []*state.Run, now time.Time) []*st
 	since := now.Add(-7 * 24 * time.Hour)
 	latest := map[string]*state.Run{}
 	for _, r := range runs {
-		if precheckRanAt(r).Before(since) || !precheckRan(store, r) {
+		if r.PrecheckRanAt().Before(since) || !store.PrecheckRan(r) {
 			continue
 		}
-		if prev := latest[r.Key()]; prev == nil || precheckRanAt(r).After(precheckRanAt(prev)) {
+		if prev := latest[r.Key()]; prev == nil || r.PrecheckRanAt().After(prev.PrecheckRanAt()) {
 			latest[r.Key()] = r
 		}
 	}
@@ -252,27 +252,6 @@ func unreportedRuns(runs []*state.Run, m *config.Machine, now time.Time) []*stat
 	}
 	sort.Slice(unreported, func(i, j int) bool { return unreported[i].ID < unreported[j].ID })
 	return unreported
-}
-
-func precheckRan(store *state.Store, r *state.Run) bool {
-	switch {
-	case r.Status == state.StatusPrecheckError, r.Status == state.StatusSkipped && strings.HasPrefix(r.Reason, state.ReasonPrecheck):
-		return true
-	case r.Status == state.StatusSucceeded, r.Status == state.StatusFailed:
-		_, err := os.Stat(filepath.Join(store.RunDir(r), "precheck.log"))
-		return err == nil
-	}
-	return false
-}
-
-func precheckRanAt(r *state.Run) time.Time {
-	switch {
-	case r.SkippedLast != nil:
-		return *r.SkippedLast
-	case r.StartedAt != nil:
-		return *r.StartedAt
-	}
-	return r.ScheduledFor
 }
 
 func (a *App) doctor(args []string) (result, error) {
@@ -355,7 +334,7 @@ func (a *App) doctor(args []string) (result, error) {
 	}
 	runs, _ := store.ListRuns(state.Filter{})
 	for _, r := range brokenPrechecks(store, runs, a.Now()) {
-		add("precheck "+r.Key(), false, "%s at %s: %s, see ags show %s", r.Status, precheckRanAt(r).Local().Format(time.RFC3339), r.Reason, r.ID)
+		add("precheck "+r.Key(), false, "%s at %s: %s, see ags show %s", r.Status, r.PrecheckRanAt().Local().Format(time.RFC3339), r.Reason, r.ID)
 	}
 	for _, r := range unreportedRuns(runs, m, a.Now()) {
 		add("report "+r.Key(), false, "run %s started %s, no ags report after %s, see ags show %s", r.ID, r.StartedAt.Local().Format(time.RFC3339), config.FormatDuration(m.ReportWithin(r.Command)), r.ID)
