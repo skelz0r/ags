@@ -17,6 +17,7 @@ import (
 	"github.com/skelz0r/ags"
 	"github.com/skelz0r/ags/internal/config"
 	"github.com/skelz0r/ags/internal/daemon"
+	"github.com/skelz0r/ags/internal/notify"
 	"github.com/skelz0r/ags/internal/paths"
 	"github.com/skelz0r/ags/internal/service"
 	"github.com/skelz0r/ags/internal/state"
@@ -318,6 +319,13 @@ func (a *App) doctor(args []string) (result, error) {
 			add("command "+name, false, "%s not found in PATH", program)
 		} else {
 			add("command "+name, true, "%s", path)
+		}
+	}
+	if m.HasChannel(config.ChannelNavette) {
+		if path, err := (notify.Navette{Getenv: a.Getenv}).Program(); err != nil {
+			add("channel navette", false, "%v: the daemon cannot post to the inbox", err)
+		} else {
+			add("channel navette", true, "%s", path)
 		}
 	}
 	reg, err := a.registry()
