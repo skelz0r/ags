@@ -24,6 +24,7 @@ const (
 	WakeDelay     = 60 * time.Second
 	MaxConcurrent = 4
 	machineKey    = "@machine"
+	registryKey   = "@registry"
 )
 
 var ErrAlreadyRunning = errors.New("another ags daemon is running")
@@ -31,6 +32,7 @@ var ErrAlreadyRunning = errors.New("another ags daemon is running")
 type Options struct {
 	Paths    paths.Paths
 	Notifier runner.Notifier
+	Navette  NavettePoster
 	Log      io.Writer
 	Now      func() time.Time
 }
@@ -54,12 +56,15 @@ type Daemon struct {
 	machineError  string
 	pendingErrors []loadError
 
-	mu      sync.Mutex
-	running map[string]*state.Run
-	sem     chan struct{}
-	wg      sync.WaitGroup
-	ctx     context.Context
-	cancel  context.CancelFunc
+	mu             sync.Mutex
+	running        map[string]*state.Run
+	navetteBusy    bool
+	navetteFailing bool
+	navetteRetryAt time.Time
+	sem            chan struct{}
+	wg             sync.WaitGroup
+	ctx            context.Context
+	cancel         context.CancelFunc
 }
 
 func New(opts Options) (*Daemon, error) {
@@ -207,6 +212,7 @@ func (d *Daemon) Tick(now time.Time) error {
 			d.start(dec)
 		}
 	}
+	d.reconcileNavette(now)
 	return nil
 }
 

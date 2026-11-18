@@ -82,7 +82,7 @@ func (m *Machine) ReportWithin(command string) time.Duration {
 }
 
 var defaultNotifications = Notifications{
-	On:       []string{"failed", "missed", "precheck_error", "invalid", "unapproved"},
+	On:       []string{"failed", "missed", "precheck_error", "invalid", "unapproved", "no_report"},
 	Channels: []string{ChannelDesktop},
 }
 

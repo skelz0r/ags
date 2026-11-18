@@ -49,7 +49,7 @@ func (d *Daemon) reload() {
 
 	reg, err := config.LoadRegistry(d.opts.Paths.Registry())
 	if err != nil {
-		d.pendingErrors = append(d.pendingErrors, loadError{"@registry", err.Error()})
+		d.pendingErrors = append(d.pendingErrors, loadError{registryKey, err.Error()})
 		return
 	}
 	seen := map[string]bool{}
