@@ -7,7 +7,7 @@ type Desktop struct {
 }
 
 func (n Desktop) Notify(event, title, message string) {
-	if !n.Machine().Notifies(event) {
+	if !n.Machine().Notifies(config.ChannelDesktop, event) {
 		return
 	}
 	send(title, message)
