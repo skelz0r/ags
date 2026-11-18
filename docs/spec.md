@@ -620,13 +620,14 @@ Error codes: `usage`, `invalid_config` (both exit 2), `not_found`,
   - One item per job, key `ags:<project>:<job>`, type `ags`; one per
     config error, key `ags:<project>:@config` (`ags:machine:@config`,
     `ags:registry:@config`). A job's problem is, first that applies:
-    `unapproved`; then the latest entry that counts (running entries
-    and skips other than a precheck's are ignored) when it is a
-    `precheck_error` or `failed` streak (a `missed` in between does not
-    break it), a `missed` streak, or a succeeded hand-off without
-    report past `report_within` (any hand-off in the window, so the
-    next occurrence does not hide it). A problem older than 7 days
-    opens no item; an item already open stays open until resolved.
+    `unapproved`; then, read as `ags attention` reads a job's entries
+    (same series, same order, same counts), its `precheck_error`
+    series, its `failed` series, a succeeded hand-off without report
+    past `report_within`, its `missed` series. Unlike `ags attention`,
+    any hand-off in the window counts, even before a later settled
+    run, so the next occurrence does not hide it. A problem older than
+    7 days opens no item; an item already open stays open until
+    resolved.
   - `waiting` when you have to act, `info` for `missed`. The description
     says since when, how many runs, the last short reason and the run
     id for `ags show`; a new streak posts at once, a growing count at
