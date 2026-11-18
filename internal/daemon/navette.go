@@ -9,6 +9,7 @@ import (
 
 	"github.com/skelz0r/ags/internal/config"
 	"github.com/skelz0r/ags/internal/notify"
+	"github.com/skelz0r/ags/internal/problem"
 	"github.com/skelz0r/ags/internal/state"
 )
 
@@ -21,7 +22,7 @@ const (
 	navetteDone        = "done"
 	eventInvalid       = "invalid"
 	eventUnapproved    = "unapproved"
-	eventNoReport      = "no_report"
+	eventNoReport      = problem.NoReport
 	timeLayout         = "Mon 02 Jan 15:04"
 )
 
@@ -213,114 +214,89 @@ func (d *Daemon) jobCondition(st *state.State, p *config.Project, j *config.Job,
 		return navetteCondition{event: eventUnapproved, item: item, sig: eventUnapproved + ":" + j.Fingerprint}, true
 	}
 	prev, posted := st.Navette[item.Key]
-	runs := d.store.RecentRuns(p.Name, j.Name, navetteLookBack)
-	if c, ok := d.streakCondition(p, item, runs, prev, posted, now, on); ok {
-		return c, true
+	job := problem.Of(d.store, d.machine, d.store.RecentRuns(p.Name, j.Name, navetteLookBack), now)
+	full := len(job.Runs()) == navetteLookBack
+	byKind := map[string]problem.Problem{}
+	for _, pb := range job.Problems() {
+		byKind[pb.Kind] = pb
 	}
-	if !on(eventNoReport) {
-		return navetteCondition{}, false
-	}
-	return d.noReportCondition(p, item, runs, prev, now)
-}
-
-func (d *Daemon) streakCondition(p *config.Project, item notify.NavetteItem, runs []*state.Run, prev state.NavetteItem, posted bool, now time.Time, on func(string) bool) (navetteCondition, bool) {
-	streak := decisiveStreak(runs)
-	if len(streak) == 0 {
-		return navetteCondition{}, false
-	}
-	last, first := streak[0], streak[len(streak)-1]
-	event := last.Status
-	if event != state.StatusPrecheckError && event != state.StatusFailed && event != state.StatusMissed || !on(event) {
-		return navetteCondition{}, false
-	}
-	sameEvent := posted && strings.HasPrefix(prev.Signature, event+":")
-	if !sameEvent && now.Sub(state.OccurredAt(last)) > state.UnreportedLookBack {
-		return navetteCondition{}, false
-	}
-	since, sig, count := first.ScheduledFor, event+":"+first.ID, ""
-	truncated := first == runs[len(runs)-1] && len(runs) == navetteLookBack
-	if truncated && sameEvent && !prev.Since.IsZero() && prev.Since.Before(since) {
-		since, sig = prev.Since, prev.Signature
-	}
-	at := func(t time.Time) string { return t.In(p.Location).Format(timeLayout) }
-	key := strings.TrimPrefix(item.Key, "ags:")
-	key = strings.Replace(key, ":", "/", 1)
-	c := navetteCondition{event: event, sig: sig, since: since}
-	if event == state.StatusMissed {
-		missed := 0
-		for _, r := range streak {
-			missed += max(r.MissedCount, 1)
-		}
-		count = plural(missed, "occurrence")
-		if truncated {
-			count = fmt.Sprintf("%d+ occurrences", missed)
-		}
-		lastMissed := last.ScheduledFor
-		if last.MissedLast != nil {
-			lastMissed = *last.MissedLast
-		}
-		item.Title, item.Status = key+" missed occurrences", navetteInfo
-		item.Description = fmt.Sprintf("%s missed since %s, the last at %s: the Mac was asleep or off, or the daemon stopped.",
-			count, at(since), at(lastMissed))
-		c.item = item
-		return c, true
-	}
-	count = plural(len(streak), "run")
-	if truncated {
-		count = fmt.Sprintf("%d+ runs", len(streak))
-	}
-	what := "Failing"
-	item.Title = key + " failed"
-	if event == state.StatusPrecheckError {
-		what, item.Title = "Precheck failing", key+": precheck fails"
-	}
-	item.Status = navetteWaiting
-	item.Description = fmt.Sprintf("%s since %s (%s). Last: %s.\n\nDetails: `ags show %s`.",
-		what, at(since), count, shortReason(last), last.ID)
-	c.item = item
-	return c, true
-}
-
-func (d *Daemon) noReportCondition(p *config.Project, item notify.NavetteItem, runs []*state.Run, prev state.NavetteItem, now time.Time) (navetteCondition, bool) {
-	tracked, open := strings.CutPrefix(prev.Signature, eventNoReport+":")
-	if open {
-		if r, err := d.store.FindRun(tracked); err == nil {
-			runs = append([]*state.Run{r}, runs...)
-		}
-	}
-	for _, r := range runs {
-		within := d.machine.ReportWithin(r.Command)
-		overdue := r.Unreported(within, now)
-		if open && r.ID == tracked && r.StartedAt != nil {
-			overdue = r.Unreported(within, r.StartedAt.Add(within+time.Second))
-		}
-		if !overdue {
+	for _, kind := range []string{problem.PrecheckError, problem.Failed, problem.NoReport, problem.Missed} {
+		if !on(kind) {
 			continue
 		}
-		key := strings.Replace(strings.TrimPrefix(item.Key, "ags:"), ":", "/", 1)
-		item.Title, item.Status = key+": no report", navetteWaiting
-		item.Description = fmt.Sprintf("Run handed off at %s, no `ags report` within %s: look at the agent it was handed to.\n\nDetails: `ags show %s`.",
-			r.StartedAt.In(p.Location).Format(timeLayout), config.FormatDuration(within), r.ID)
-		return navetteCondition{event: eventNoReport, item: item, sig: eventNoReport + ":" + r.ID}, true
+		if kind == problem.NoReport {
+			if c, ok := d.noReportCondition(p, item, job, prev); ok {
+				return c, true
+			}
+			continue
+		}
+		pb, found := byKind[kind]
+		if !found {
+			continue
+		}
+		sameEvent := posted && strings.HasPrefix(prev.Signature, kind+":")
+		if !sameEvent && !pb.Recent(now) {
+			continue
+		}
+		return seriesCondition(p, item, pb, pb.ToEnd && full, prev, sameEvent), true
 	}
 	return navetteCondition{}, false
 }
 
-func decisiveStreak(runs []*state.Run) []*state.Run {
-	var streak []*state.Run
-	for _, r := range runs {
-		if r.Status == state.StatusRunning || r.Status == state.StatusSkipped && !strings.HasPrefix(r.Reason, state.ReasonPrecheck) {
-			continue
-		}
-		if len(streak) > 0 && r.Status == state.StatusMissed && streak[0].Status != state.StatusMissed {
-			continue
-		}
-		if len(streak) > 0 && (r.Status != streak[0].Status || r.Status == state.StatusSucceeded) {
-			break
-		}
-		streak = append(streak, r)
+func seriesCondition(p *config.Project, item notify.NavetteItem, pb problem.Problem, truncated bool, prev state.NavetteItem, sameEvent bool) navetteCondition {
+	last, first := pb.Latest(), pb.Runs[len(pb.Runs)-1]
+	since, sig := first.ScheduledFor, pb.Kind+":"+first.ID
+	if truncated && sameEvent && !prev.Since.IsZero() && !prev.Since.After(first.HappenedAt()) {
+		since, sig = prev.Since, prev.Signature
 	}
-	return streak
+	at := func(t time.Time) string { return t.In(p.Location).Format(timeLayout) }
+	key := strings.Replace(strings.TrimPrefix(item.Key, "ags:"), ":", "/", 1)
+	unit := "run"
+	if pb.Kind == problem.Missed {
+		unit = "occurrence"
+	}
+	count := plural(pb.Count, unit)
+	if truncated {
+		count = fmt.Sprintf("%d+ %ss", pb.Count, unit)
+	}
+	switch pb.Kind {
+	case problem.Missed:
+		item.Title, item.Status = key+" missed occurrences", navetteInfo
+		item.Description = fmt.Sprintf("%s missed since %s, the last at %s: the Mac was asleep or off, or the daemon stopped.",
+			count, at(since), at(pb.Last))
+	default:
+		what := "Failing"
+		item.Title = key + " failed"
+		if pb.Kind == problem.PrecheckError {
+			what, item.Title = "Precheck failing", key+": precheck fails"
+		}
+		item.Status = navetteWaiting
+		item.Description = fmt.Sprintf("%s since %s (%s). Last: %s.\n\nDetails: `ags show %s`.",
+			what, at(since), count, shortReason(last), last.ID)
+	}
+	return navetteCondition{event: pb.Kind, item: item, sig: sig, since: since}
+}
+
+func (d *Daemon) noReportCondition(p *config.Project, item notify.NavetteItem, job problem.Job, prev state.NavetteItem) (navetteCondition, bool) {
+	runs := job.Unreported()
+	tracked, open := strings.CutPrefix(prev.Signature, eventNoReport+":")
+	if open {
+		if r, err := d.store.FindRun(tracked); err == nil && r.StartedAt != nil {
+			within := d.machine.ReportWithin(r.Command)
+			if r.Unreported(within, r.StartedAt.Add(within+time.Second)) {
+				runs = append([]*state.Run{r}, runs...)
+			}
+		}
+	}
+	if len(runs) == 0 {
+		return navetteCondition{}, false
+	}
+	r := runs[0]
+	key := strings.Replace(strings.TrimPrefix(item.Key, "ags:"), ":", "/", 1)
+	item.Title, item.Status = key+": no report", navetteWaiting
+	item.Description = fmt.Sprintf("Run handed off at %s, no `ags report` within %s: look at the agent it was handed to.\n\nDetails: `ags show %s`.",
+		r.StartedAt.In(p.Location).Format(timeLayout), config.FormatDuration(d.machine.ReportWithin(r.Command)), r.ID)
+	return navetteCondition{event: eventNoReport, item: item, sig: eventNoReport + ":" + r.ID}, true
 }
 
 func (d *Daemon) resolution(key string, prev state.NavetteItem) string {

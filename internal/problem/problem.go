@@ -25,6 +25,7 @@ type Problem struct {
 	Since time.Time
 	Last  time.Time
 	Count int
+	ToEnd bool
 }
 
 func (p Problem) Latest() *state.Run { return p.Runs[0] }
@@ -44,6 +45,8 @@ func Of(store *state.Store, m *config.Machine, runs []*state.Run, now time.Time)
 	return Job{store: store, machine: m, history: history, now: now}
 }
 
+func (j Job) Runs() []*state.Run { return j.history }
+
 func (j Job) Problems() []Problem {
 	var found []Problem
 	for _, derive := range []func() (Problem, bool){j.precheck, j.failed, j.report, j.noReport, j.missed} {
@@ -55,38 +58,20 @@ func (j Job) Problems() []Problem {
 }
 
 func (j Job) precheck() (Problem, bool) {
-	var series []*state.Run
-	for _, r := range j.history {
-		if !j.store.PrecheckRan(r) {
-			continue
-		}
-		if r.Status != state.StatusPrecheckError {
-			break
-		}
-		series = append(series, r)
-	}
+	series, toEnd := j.series(state.StatusPrecheckError, func(r *state.Run) bool { return !j.store.PrecheckRan(r) })
 	if len(series) == 0 {
 		return Problem{}, false
 	}
-	return Problem{Kind: PrecheckError, Runs: series, Count: len(series),
+	return Problem{Kind: PrecheckError, Runs: series, Count: len(series), ToEnd: toEnd,
 		Since: series[len(series)-1].PrecheckRanAt(), Last: series[0].PrecheckRanAt()}, true
 }
 
 func (j Job) failed() (Problem, bool) {
-	var series []*state.Run
-	for _, r := range j.history {
-		if !r.CommandStarted() || r.Status == state.StatusRunning {
-			continue
-		}
-		if r.Status != state.StatusFailed {
-			break
-		}
-		series = append(series, r)
-	}
+	series, toEnd := j.series(state.StatusFailed, func(r *state.Run) bool { return !r.CommandStarted() || r.Status == state.StatusRunning })
 	if len(series) == 0 {
 		return Problem{}, false
 	}
-	return Problem{Kind: Failed, Runs: series, Count: len(series),
+	return Problem{Kind: Failed, Runs: series, Count: len(series), ToEnd: toEnd,
 		Since: startedAt(series[len(series)-1]), Last: endedAt(series[0])}, true
 }
 
@@ -106,39 +91,59 @@ func (j Job) report() (Problem, bool) {
 	return Problem{Kind: kind, Runs: []*state.Run{r}, Count: 1, Since: r.Report.At, Last: r.Report.At}, true
 }
 
+func (j Job) series(status string, ignored func(*state.Run) bool) ([]*state.Run, bool) {
+	var series []*state.Run
+	for _, r := range j.history {
+		if ignored(r) {
+			continue
+		}
+		if r.Status != status {
+			return series, false
+		}
+		series = append(series, r)
+	}
+	return series, true
+}
+
+func (j Job) Unreported() []*state.Run {
+	var overdue []*state.Run
+	for _, r := range j.history {
+		if r.Unreported(j.machine.ReportWithin(r.Command), j.now) {
+			overdue = append(overdue, r)
+		}
+	}
+	sort.SliceStable(overdue, func(a, b int) bool { return overdue[a].StartedAt.After(*overdue[b].StartedAt) })
+	return overdue
+}
+
 func (j Job) noReport() (Problem, bool) {
 	var settled time.Time
 	if r := j.settled(); r != nil {
 		settled = startedAt(r)
 	}
 	var open []*state.Run
-	for _, r := range j.history {
-		if r.Unreported(j.machine.ReportWithin(r.Command), j.now) && r.StartedAt.After(settled) {
+	for _, r := range j.Unreported() {
+		if r.StartedAt.After(settled) {
 			open = append(open, r)
 		}
 	}
 	if len(open) == 0 {
 		return Problem{}, false
 	}
-	sort.SliceStable(open, func(a, b int) bool { return open[a].StartedAt.After(*open[b].StartedAt) })
 	return Problem{Kind: NoReport, Runs: open, Count: len(open),
 		Since: *open[len(open)-1].StartedAt, Last: *open[0].StartedAt}, true
 }
 
 func (j Job) missed() (Problem, bool) {
-	var series []*state.Run
-	count := 0
-	for _, r := range j.history {
-		if r.Status != state.StatusMissed {
-			break
-		}
-		series = append(series, r)
-		count += max(1, r.MissedCount)
-	}
+	series, toEnd := j.series(state.StatusMissed, func(*state.Run) bool { return false })
 	if len(series) == 0 {
 		return Problem{}, false
 	}
-	return Problem{Kind: Missed, Runs: series, Count: count,
+	count := 0
+	for _, r := range series {
+		count += max(1, r.MissedCount)
+	}
+	return Problem{Kind: Missed, Runs: series, Count: count, ToEnd: toEnd,
 		Since: series[len(series)-1].ScheduledFor, Last: missedLast(series[0])}, true
 }
 
