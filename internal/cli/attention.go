@@ -8,22 +8,22 @@ import (
 
 	"github.com/skelz0r/ags/internal/config"
 	"github.com/skelz0r/ags/internal/paths"
+	"github.com/skelz0r/ags/internal/problem"
 	"github.com/skelz0r/ags/internal/state"
 )
 
 const (
 	AttentionDaemon        = "daemon"
 	AttentionConfig        = "config"
-	AttentionPrecheckError = state.StatusPrecheckError
-	AttentionFailed        = state.StatusFailed
-	AttentionBlocked       = state.ReportBlocked
-	AttentionAgentFailed   = "agent_failed"
-	AttentionNoReport      = FeedNoReport
-	AttentionMissed        = state.StatusMissed
+	AttentionPrecheckError = problem.PrecheckError
+	AttentionFailed        = problem.Failed
+	AttentionBlocked       = problem.Blocked
+	AttentionAgentFailed   = problem.AgentFailed
+	AttentionNoReport      = problem.NoReport
+	AttentionMissed        = problem.Missed
 	AttentionUnapproved    = "unapproved"
 
-	attentionWindow = 7 * 24 * time.Hour
-	recentWindow    = 24 * time.Hour
+	recentWindow = 24 * time.Hour
 )
 
 var attentionOrder = []string{AttentionDaemon, AttentionConfig, AttentionPrecheckError, AttentionFailed, AttentionBlocked, AttentionAgentFailed, AttentionNoReport, AttentionMissed, AttentionUnapproved}
@@ -165,188 +165,32 @@ func runItems(store *state.Store, m *config.Machine, runs []*state.Run, now time
 		}
 		byJob[r.Key()] = append(byJob[r.Key()], r)
 	}
-	for _, history := range byJob {
-		sort.SliceStable(history, func(i, j int) bool { return happenedAt(history[i]).After(happenedAt(history[j])) })
-	}
 	var items []AttentionItem
-	for _, r := range brokenPrechecks(store, runs, now) {
-		items = append(items, precheckItem(store, r, byJob[r.Key()]))
-	}
-	unreported := map[string][]*state.Run{}
-	for _, r := range unreportedRuns(runs, m, now) {
-		unreported[r.Key()] = append(unreported[r.Key()], r)
-	}
-	since := now.Add(-attentionWindow)
 	for _, key := range keys {
-		history := byJob[key]
-		if item, ok := failedItem(history, since); ok {
-			items = append(items, item)
-		}
-		if item, ok := reportItem(history, since); ok {
-			items = append(items, item)
-		}
-		if item, ok := noReportItem(history, unreported[key], m); ok {
-			items = append(items, item)
-		}
-		if item, ok := missedItem(history, since); ok {
-			items = append(items, item)
+		for _, p := range problem.Of(store, m, byJob[key], now).Problems() {
+			if p.Recent(now) {
+				items = append(items, problemItem(p, m))
+			}
 		}
 	}
 	return items
 }
 
-func jobItem(kind string, r *state.Run) AttentionItem {
-	return AttentionItem{Kind: kind, Key: r.Key(), Project: r.Project, Job: r.Job, Run: r.ID, Count: 1}
-}
-
-func (i *AttentionItem) span(first, last time.Time) {
-	i.Since, i.Last = &first, &last
-}
-
-func precheckItem(store *state.Store, latest *state.Run, history []*state.Run) AttentionItem {
-	item := jobItem(AttentionPrecheckError, latest)
-	item.Count = 0
-	first := precheckRanAt(latest)
-	for _, r := range history {
-		if !precheckRan(store, r) || precheckRanAt(r).After(precheckRanAt(latest)) {
-			continue
+func problemItem(p problem.Problem, m *config.Machine) AttentionItem {
+	r := p.Latest()
+	since, last := p.Since, p.Last
+	item := AttentionItem{Kind: p.Kind, Key: r.Key(), Project: r.Project, Job: r.Job, Run: r.ID, Count: p.Count, Since: &since, Last: &last, Summary: oneLine(r.Reason)}
+	switch p.Kind {
+	case problem.Failed:
+		if item.Summary == "" && r.ExitCode != nil {
+			item.Summary = fmt.Sprintf("exit %d", *r.ExitCode)
 		}
-		if r.Status != state.StatusPrecheckError {
-			break
-		}
-		item.Count++
-		first = precheckRanAt(r)
-	}
-	item.span(first, precheckRanAt(latest))
-	item.Summary = oneLine(latest.Reason)
-	return item
-}
-
-func failedItem(history []*state.Run, since time.Time) (AttentionItem, bool) {
-	var series []*state.Run
-	for _, r := range history {
-		if !r.CommandStarted() || r.Status == state.StatusRunning {
-			continue
-		}
-		if r.Status != state.StatusFailed {
-			break
-		}
-		series = append(series, r)
-	}
-	if len(series) == 0 || endedAt(series[0]).Before(since) {
-		return AttentionItem{}, false
-	}
-	item := jobItem(AttentionFailed, series[0])
-	item.Count = len(series)
-	item.span(startedAt(series[len(series)-1]), endedAt(series[0]))
-	item.Summary = oneLine(series[0].Reason)
-	if item.Summary == "" && series[0].ExitCode != nil {
-		item.Summary = fmt.Sprintf("exit %d", *series[0].ExitCode)
-	}
-	return item, true
-}
-
-func settles(r *state.Run) bool {
-	if r.Report != nil {
-		return true
-	}
-	return r.Status == state.StatusSucceeded && !r.AwaitsReport
-}
-
-func reportItem(history []*state.Run, since time.Time) (AttentionItem, bool) {
-	for _, r := range history {
-		if !r.CommandStarted() || !settles(r) {
-			continue
-		}
-		if r.Report == nil || r.Report.At.Before(since) {
-			return AttentionItem{}, false
-		}
-		kind := AttentionBlocked
-		switch r.Report.Status {
-		case state.ReportBlocked:
-		case state.ReportFailed:
-			kind = AttentionAgentFailed
-		default:
-			return AttentionItem{}, false
-		}
-		item := jobItem(kind, r)
-		item.span(r.Report.At, r.Report.At)
+	case problem.Blocked, problem.AgentFailed:
 		item.Summary, item.Ref = oneLine(r.Report.Summary), r.Report.Ref
-		return item, true
+	case problem.NoReport:
+		item.Summary = fmt.Sprintf("handed off, no ags report within %s", config.FormatDuration(m.ReportWithin(r.Command)))
 	}
-	return AttentionItem{}, false
-}
-
-func noReportItem(history, unreported []*state.Run, m *config.Machine) (AttentionItem, bool) {
-	var settled time.Time
-	for _, r := range history {
-		if r.CommandStarted() && settles(r) {
-			settled = startedAt(r)
-			break
-		}
-	}
-	var open []*state.Run
-	for _, r := range unreported {
-		if r.StartedAt.After(settled) {
-			open = append(open, r)
-		}
-	}
-	if len(open) == 0 {
-		return AttentionItem{}, false
-	}
-	sort.Slice(open, func(i, j int) bool { return open[i].StartedAt.After(*open[j].StartedAt) })
-	item := jobItem(AttentionNoReport, open[0])
-	item.Count = len(open)
-	item.span(*open[len(open)-1].StartedAt, *open[0].StartedAt)
-	item.Summary = fmt.Sprintf("handed off, no ags report within %s", config.FormatDuration(m.ReportWithin(open[0].Command)))
-	return item, true
-}
-
-func missedItem(history []*state.Run, since time.Time) (AttentionItem, bool) {
-	var series []*state.Run
-	for _, r := range history {
-		if r.Status != state.StatusMissed {
-			break
-		}
-		series = append(series, r)
-	}
-	if len(series) == 0 || missedLast(series[0]).Before(since) {
-		return AttentionItem{}, false
-	}
-	item := jobItem(AttentionMissed, series[0])
-	item.Count = 0
-	for _, r := range series {
-		item.Count += max(1, r.MissedCount)
-	}
-	item.span(series[len(series)-1].ScheduledFor, missedLast(series[0]))
-	item.Summary = oneLine(series[0].Reason)
-	return item, true
-}
-
-func happenedAt(r *state.Run) time.Time {
-	switch {
-	case r.SkippedLast != nil:
-		return *r.SkippedLast
-	case r.MissedLast != nil:
-		return *r.MissedLast
-	case r.StartedAt != nil:
-		return *r.StartedAt
-	}
-	return r.ScheduledFor
-}
-
-func missedLast(r *state.Run) time.Time {
-	if r.MissedLast != nil {
-		return *r.MissedLast
-	}
-	return r.ScheduledFor
-}
-
-func startedAt(r *state.Run) time.Time {
-	if r.StartedAt != nil {
-		return *r.StartedAt
-	}
-	return r.ScheduledFor
+	return item
 }
 
 func recentReports(runs []*state.Run, now time.Time) []FeedEntry {
