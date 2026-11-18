@@ -47,12 +47,26 @@ type Machine struct {
 	Notifications   Notifications
 }
 
-func (m *Machine) Notifies(event string) bool {
-	if len(m.Notifications.Channels) == 0 {
+const (
+	ChannelDesktop = "desktop"
+	channelMacOS   = "macos"
+)
+
+func (m *Machine) Notifies(channel, event string) bool {
+	if !m.HasChannel(channel) {
 		return false
 	}
 	for _, on := range m.Notifications.On {
 		if on == event {
+			return true
+		}
+	}
+	return false
+}
+
+func (m *Machine) HasChannel(channel string) bool {
+	for _, ch := range m.Notifications.Channels {
+		if ch == channel || channel == ChannelDesktop && ch == channelMacOS {
 			return true
 		}
 	}
@@ -68,7 +82,7 @@ func (m *Machine) ReportWithin(command string) time.Duration {
 
 var defaultNotifications = Notifications{
 	On:       []string{"failed", "missed", "precheck_error", "invalid", "unapproved"},
-	Channels: []string{"desktop"},
+	Channels: []string{ChannelDesktop},
 }
 
 func LoadMachine(path string) (*Machine, Issues) {
@@ -206,7 +220,7 @@ func (m *Machine) loadNotifications(node *yaml.Node) Issues {
 		case "channels":
 			m.Notifications.Channels, err = stringList(p.value)
 			for _, ch := range m.Notifications.Channels {
-				if err == nil && ch != "desktop" && ch != "macos" {
+				if err == nil && ch != ChannelDesktop && ch != channelMacOS {
 					err = errorf("unknown channel %q, only desktop is supported", ch)
 				}
 			}
