@@ -45,6 +45,8 @@ const (
 	OutputLimit      = 64 * 1024
 	KeepPerJob       = 100
 	previousLookBack = 10
+
+	UnreportedLookBack = 7 * 24 * time.Hour
 )
 
 type Run struct {
@@ -376,6 +378,14 @@ func (s *Store) ListRuns(f Filter) ([]*Run, error) {
 		runs = runs[:f.Limit]
 	}
 	return runs, nil
+}
+
+func (r *Run) Unreported(within time.Duration, now time.Time) bool {
+	if r.Status != StatusSucceeded || !r.AwaitsReport || r.Report != nil || r.StartedAt == nil || within <= 0 {
+		return false
+	}
+	age := now.Sub(*r.StartedAt)
+	return age > within && age <= UnreportedLookBack
 }
 
 func readRun(file string) (*Run, error) {

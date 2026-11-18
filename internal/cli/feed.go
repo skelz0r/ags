@@ -272,7 +272,7 @@ func (f *feed) overdueRun(r *state.Run, now time.Time) []FeedEntry {
 }
 
 func (f *feed) reportWithin(r *state.Run) time.Duration {
-	return reportWithin(f.machine, r)
+	return f.machine.ReportWithin(r.Command)
 }
 
 func endedAt(r *state.Run) time.Time {
