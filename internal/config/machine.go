@@ -49,6 +49,7 @@ type Machine struct {
 
 const (
 	ChannelDesktop = "desktop"
+	ChannelNavette = "navette"
 	channelMacOS   = "macos"
 )
 
@@ -220,8 +221,8 @@ func (m *Machine) loadNotifications(node *yaml.Node) Issues {
 		case "channels":
 			m.Notifications.Channels, err = stringList(p.value)
 			for _, ch := range m.Notifications.Channels {
-				if err == nil && ch != ChannelDesktop && ch != channelMacOS {
-					err = errorf("unknown channel %q, only desktop is supported", ch)
+				if err == nil && ch != ChannelDesktop && ch != channelMacOS && ch != ChannelNavette {
+					err = errorf("unknown channel %q, expected desktop or navette", ch)
 				}
 			}
 		default:
