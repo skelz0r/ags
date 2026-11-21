@@ -388,6 +388,7 @@ func fakeNavette(root string) string {
   printf 'cwd=%%s\0' "$PWD"
   printf 'bridge=%%s\0' "${CLAUDE_CODE_BRIDGE_SESSION_ID-unset}"
   printf 'pane=%%s\0' "${HERDR_PANE_ID-unset}"
+  printf 'locale=%%s\0' "${LC_ALL:-${LC_CTYPE:-${LANG-}}}"
   if [ -e %[1]s/navette.down ]; then printf 'failed=yes\0'; fi
   printf '%%s\0' "$@"
   printf '\036'
@@ -399,6 +400,7 @@ echo "Item 1 (fake)"
 
 type NavettePost struct {
 	Cwd, Bridge, Pane string
+	Locale            string
 	Failed            bool
 	Args              []string
 	Flags             map[string]string
@@ -433,7 +435,7 @@ func (w *World) NavettePosts() []NavettePost {
 		p := NavettePost{Flags: map[string]string{}}
 		for len(fields) > 0 {
 			name, value, ok := strings.Cut(fields[0], "=")
-			if !ok || !map[string]bool{"cwd": true, "bridge": true, "pane": true, "failed": true}[name] {
+			if !ok || !map[string]bool{"cwd": true, "bridge": true, "pane": true, "locale": true, "failed": true}[name] {
 				break
 			}
 			switch name {
@@ -443,6 +445,8 @@ func (w *World) NavettePosts() []NavettePost {
 				p.Bridge = value
 			case "pane":
 				p.Pane = value
+			case "locale":
+				p.Locale = value
 			case "failed":
 				p.Failed = true
 			}

@@ -682,6 +682,10 @@ Error codes: `usage`, `invalid_config` (both exit 2), `not_found`,
     pane, and the daemon has none; `CLAUDE_CODE_BRIDGE_SESSION_ID` and
     `HERDR_PANE_ID` are removed from its environment. `navette` runs
     from the project directory, so the item gets the project's tag.
+  - `navette` runs under a UTF-8 locale (`LC_ALL=en_US.UTF-8` when
+    neither `LC_ALL`, `LC_CTYPE` nor `LANG` names one): launchd starts
+    the daemon without any, and navette would then reject the accented
+    text of the French items.
   - A failing `navette post` (binary missing, server down, 20 s
     timeout) never blocks a tick nor the desktop channel: the daemon
     logs it once, retries 5 minutes later, and records an item as

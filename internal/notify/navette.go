@@ -69,16 +69,32 @@ func (n Navette) Post(ctx context.Context, item NavetteItem) error {
 	return nil
 }
 
+const utf8Locale = "en_US.UTF-8"
+
 func (n Navette) env() []string {
 	var env []string
+	utf8 := unicodeLocale()
 	for _, kv := range os.Environ() {
 		name, _, _ := strings.Cut(kv, "=")
-		if name == "PATH" || name == "HOME" || inherited(name) {
+		if name == "PATH" || name == "HOME" || inherited(name) || (!utf8 && name == "LC_ALL") {
 			continue
 		}
 		env = append(env, kv)
 	}
+	if !utf8 {
+		env = append(env, "LC_ALL="+utf8Locale)
+	}
 	return append(env, "PATH="+n.Getenv("PATH"), "HOME="+n.Getenv("HOME"))
+}
+
+func unicodeLocale() bool {
+	for _, name := range []string{"LC_ALL", "LC_CTYPE", "LANG"} {
+		if value := os.Getenv(name); value != "" {
+			value = strings.ToUpper(value)
+			return strings.Contains(value, "UTF-8") || strings.Contains(value, "UTF8")
+		}
+	}
+	return false
 }
 
 func inherited(name string) bool {

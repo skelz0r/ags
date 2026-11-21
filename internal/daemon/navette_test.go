@@ -394,3 +394,20 @@ func TestTheInboxItemOfAFailedRunSaysWhatFailedWhatWasKeptAndHowToRelaunch(t *te
 		t.Fatalf("expected the item titled after the job, got %q", post.Flags["--title"])
 	}
 }
+
+func TestAFrenchInboxItemReachesNavetteUnderAUTF8LocaleWhenTheDaemonHasNone(t *testing.T) {
+	t.Setenv("LC_ALL", "")
+	t.Setenv("LC_CTYPE", "")
+	t.Setenv("LANG", "")
+	w := alertWorld(t)
+	w.EnableNavette()
+	w.Register()
+	d := w.Daemon()
+	w.Write(filepath.Join(w.ProjectDir, "fail"), "")
+	w.TickEvery(d, At(19, 8, 59, 30), At(19, 9, 0, 30), 30*time.Second)
+
+	post := onlyPost(t, w.NavettePostsFor("ags:proj:watch"), "waiting")
+	if !strings.Contains(strings.ToUpper(post.Locale), "UTF-8") {
+		t.Fatalf("launchd starts the daemon without a locale and navette then rejects accented text, expected a UTF-8 locale, got %q", post.Locale)
+	}
+}
