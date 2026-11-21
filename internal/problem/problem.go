@@ -2,6 +2,7 @@ package problem
 
 import (
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/skelz0r/ags/internal/config"
@@ -182,4 +183,42 @@ func endedAt(r *state.Run) time.Time {
 		return *r.EndedAt
 	}
 	return r.ScheduledFor
+}
+
+const (
+	CauseNotStarted  = "not_started"
+	CauseNoAgent     = "no_agent"
+	CauseAgent       = "agent"
+	CauseCommand     = "command"
+	CauseTimeout     = "timeout"
+	CauseInterrupted = "interrupted"
+
+	LaunchWindow = time.Minute
+)
+
+func Cause(r *state.Run) string {
+	switch {
+	case !r.CommandStarted() || strings.HasPrefix(r.Reason, "start: "):
+		return CauseNotStarted
+	case strings.HasPrefix(r.Reason, state.ReasonInterrupted):
+		return CauseInterrupted
+	case strings.HasPrefix(r.Reason, state.ReasonTimeout):
+		return CauseTimeout
+	case !r.AwaitsReport:
+		return CauseCommand
+	case r.Report == nil && Duration(r) < LaunchWindow:
+		return CauseNoAgent
+	}
+	return CauseAgent
+}
+
+func Duration(r *state.Run) time.Duration {
+	start := r.CommandAt
+	if start == nil {
+		start = r.StartedAt
+	}
+	if start == nil || r.EndedAt == nil {
+		return 0
+	}
+	return r.EndedAt.Sub(*start)
 }

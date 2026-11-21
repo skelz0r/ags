@@ -369,3 +369,28 @@ jobs:
 		t.Fatalf("expected the item to stay on the forgotten run once the later ones report, got %+v", posts)
 	}
 }
+
+func TestTheInboxItemOfAFailedRunSaysWhatFailedWhatWasKeptAndHowToRelaunch(t *testing.T) {
+	w := alertWorld(t)
+	w.EnableNavette()
+	w.Register()
+	d := w.Daemon()
+	w.Write(filepath.Join(w.ProjectDir, "fail"), "")
+	w.TickEvery(d, At(19, 8, 59, 30), At(19, 9, 0, 30), 30*time.Second)
+
+	post := onlyPost(t, w.NavettePostsFor("ags:proj:watch"), "waiting")
+	desc := post.Flags["--description"]
+	for _, want := range []string{
+		"la commande n'a probablement pas lancé l'agent (exit 1 après 0 s, sans rapport)",
+		"Le precheck avait trouvé du travail : son état n'a pas été validé, le prochain run le retrouvera.",
+		"Fin du stderr :\n\n```\ndispatch: enqueue\nunreadable tab 1 of herdr workspace wW\n```",
+		"Relancer : `ags run proj/watch`.",
+	} {
+		if !strings.Contains(desc, want) {
+			t.Fatalf("expected the description to contain %q, got %q", want, desc)
+		}
+	}
+	if post.Flags["--title"] != "proj/watch en échec" {
+		t.Fatalf("expected the item titled after the job, got %q", post.Flags["--title"])
+	}
+}

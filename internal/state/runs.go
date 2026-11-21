@@ -74,7 +74,10 @@ type Run struct {
 	OwnerPID      int        `json:"owner_pid,omitempty"`
 	AwaitsReport  bool       `json:"awaits_report,omitempty"`
 	Report        *Report    `json:"report,omitempty"`
+	PrecheckFound bool       `json:"precheck_found,omitempty"`
 	StagedState   string     `json:"staged_state,omitempty"`
+	StderrTail    string     `json:"stderr_tail,omitempty"`
+	CommandAt     *time.Time `json:"command_started_at,omitempty"`
 }
 
 type Report struct {

@@ -40,7 +40,7 @@ func TestAFailingJobStaysAFailureInTheInboxWhenLaterOccurrencesAreMissed(t *test
 
 	w.TickEvery(d, At(22, 9, 30, 0), At(22, 9, 31, 0), 30*time.Second)
 	posts := w.NavettePostsFor("ags:proj:daily")
-	if last := posts[len(posts)-1]; last.Flags["--status"] != "waiting" || last.Flags["--title"] != "proj/daily failed" {
+	if last := posts[len(posts)-1]; last.Flags["--status"] != "waiting" || last.Flags["--title"] != "proj/daily en échec" {
 		t.Fatalf("expected the failure to stay what waits for the user, got %+v", posts)
 	}
 }

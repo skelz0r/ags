@@ -110,9 +110,12 @@ func (rn *Runner) Execute(ctx context.Context, req Request) *state.Run {
 	if inv.Command.Stdin == config.StdinPrompt {
 		cmd.Stdin = strings.NewReader(inv.Stdin)
 	}
+	commandAt := rn.Now()
+	run.CommandAt = &commandAt
 	result := runProcess(ctx, cmd, inv.Command.Timeout)
 	stdout.Close()
 	stderr.Close()
+	run.StderrTail = stderrTail(filepath.Join(rn.Store.RunDir(run), "stderr"))
 	truncate(filepath.Join(rn.Store.RunDir(run), "stdout"))
 	truncate(filepath.Join(rn.Store.RunDir(run), "stderr"))
 
@@ -128,6 +131,7 @@ func (rn *Runner) Execute(ctx context.Context, req Request) *state.Run {
 	case result.exitCode != nil && *result.exitCode == 0:
 		run.ExitCode = result.exitCode
 		run.Status = state.StatusSucceeded
+		run.StderrTail = ""
 		rn.recordSuccess(run)
 		return rn.finish(run)
 	default:
@@ -179,6 +183,9 @@ func (rn *Runner) runPrecheck(ctx context.Context, p *config.Project, j *config.
 	log.Close()
 	out, readErr := readHead(stdoutPath, state.OutputLimit+1)
 	truncate(logPath)
+	if result.exitCode != nil && *result.exitCode == 0 && !result.timedOut && !result.interrupted {
+		run.PrecheckFound = strings.TrimSpace(string(out)) != ""
+	}
 
 	switch {
 	case result.startErr != nil:
@@ -359,6 +366,57 @@ func firstLine(s string) string {
 		}
 	}
 	return ""
+}
+
+const (
+	tailBytes     = 4096
+	tailLines     = 12
+	tailLineRunes = 200
+)
+
+func stderrTail(path string) string {
+	f, err := os.Open(path)
+	if err != nil {
+		return ""
+	}
+	defer f.Close()
+	info, err := f.Stat()
+	if err != nil {
+		return ""
+	}
+	offset := max(0, info.Size()-tailBytes)
+	buf := make([]byte, info.Size()-offset)
+	n, _ := f.ReadAt(buf, offset)
+	text := strings.ToValidUTF8(string(buf[:n]), "")
+	lines := strings.Split(text, "\n")
+	if offset > 0 && len(lines) > 1 {
+		lines = lines[1:]
+	}
+	var kept []string
+	for _, line := range lines {
+		line = strings.TrimRight(strings.Map(printable, line), " ")
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		if runes := []rune(line); len(runes) > tailLineRunes {
+			line = string(runes[:tailLineRunes]) + "…"
+		}
+		kept = append(kept, line)
+	}
+	if len(kept) > tailLines {
+		kept = kept[len(kept)-tailLines:]
+	}
+	return strings.Join(kept, "\n")
+}
+
+func printable(r rune) rune {
+	switch {
+	case r == '\t':
+		return ' '
+	case r < 0x20, r == 0x7f, r >= 0x80 && r < 0xa0:
+		return -1
+	}
+	return r
 }
 
 func truncate(path string) {

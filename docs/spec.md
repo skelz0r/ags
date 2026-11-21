@@ -619,8 +619,12 @@ Error codes: `usage`, `invalid_config` (both exit 2), `not_found`,
   and end, the command name and argv, exit code (the precheck's when
   the precheck stopped the run), whether it awaits a report
   (`awaits_report`) and the report (`report`: status, summary, ref,
-  time), what became of its staged state (`staged_state`), the first
-  64 KiB of stdout and
+  time), when the command started (`command_started_at`), whether the
+  precheck exited 0 with something on stdout (`precheck_found`), what
+  became of its staged state (`staged_state`), for a failed run the
+  last 12 non-blank lines of its stderr, control characters removed
+  and each line cut at 200 characters (`stderr_tail`, read before the
+  64 KiB cut), the first 64 KiB of stdout and
   stderr, and the precheck's stdout and stderr (`precheck.log`, first
   64 KiB). A `precheck_error` is never folded. A hand-off command can
   print an id on stdout to link the run to whatever it handed off to.
@@ -659,6 +663,18 @@ Error codes: `usage`, `invalid_config` (both exit 2), `not_found`,
     id for `ags show`; a new streak posts at once, a growing count at
     most once an hour. A streak longer than the 30 entries keeps the
     start recorded when its item opened.
+  - A `failed` item, written in French, says what the last run's
+    failure most likely was: the command could not start; it was
+    interrupted; it timed out; a command that is not an agent
+    (`report_within: never`) failed; the command exited non-zero
+    within a minute of starting without any report, so it most likely
+    never launched the agent (a dispatcher that could not hand off);
+    otherwise the agent failed, with the exit code and how long the
+    command ran. Then, when the precheck had found something, whether
+    it is kept (`staged_state: discarded`: the next run finds it again)
+    or may be lost (written straight into `AGS_JOB_STATE_DIR`); the
+    `stderr_tail` in a code block; and `ags run <project/job>` to
+    relaunch it.
   - Once the problem is gone (precheck passes, run succeeds, approved,
     reported, config fixed, job paused or removed) the item is posted
     `done`.

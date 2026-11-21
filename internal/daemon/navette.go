@@ -264,17 +264,89 @@ func seriesCondition(p *config.Project, item notify.NavetteItem, pb problem.Prob
 		item.Title, item.Status = key+" missed occurrences", navetteInfo
 		item.Description = fmt.Sprintf("%s missed since %s, the last at %s: the Mac was asleep or off, or the daemon stopped.",
 			count, at(since), at(pb.Last))
+	case problem.Failed:
+		item.Title, item.Status = key+" en échec", navetteWaiting
+		item.Description = failedDescription(key, last, at(since), pb.Count, truncated)
 	default:
-		what := "Failing"
-		item.Title = key + " failed"
-		if pb.Kind == problem.PrecheckError {
-			what, item.Title = "Precheck failing", key+": precheck fails"
-		}
-		item.Status = navetteWaiting
-		item.Description = fmt.Sprintf("%s since %s (%s). Last: %s.\n\nDetails: `ags show %s`.",
-			what, at(since), count, shortReason(last), last.ID)
+		item.Title, item.Status = key+": precheck fails", navetteWaiting
+		item.Description = fmt.Sprintf("Precheck failing since %s (%s). Last: %s.\n\nDetails: `ags show %s`.",
+			at(since), count, shortReason(last), last.ID)
 	}
 	return navetteCondition{event: pb.Kind, item: item, sig: sig, since: since}
+}
+
+func failedDescription(key string, last *state.Run, since string, count int, truncated bool) string {
+	runs := fmt.Sprintf("%d runs", count)
+	switch {
+	case truncated:
+		runs = fmt.Sprintf("%d+ runs", count)
+	case count == 1:
+		runs = "1 run"
+	}
+	exit := describeExit(last)
+	var b strings.Builder
+	fmt.Fprintf(&b, "En échec depuis %s (%s). Dernier run : %s.", since, runs, failureCause(last, exit))
+	switch {
+	case last.StagedState == state.StagedDiscarded && last.PrecheckFound:
+		b.WriteString("\n\nLe precheck avait trouvé du travail : son état n'a pas été validé, le prochain run le retrouvera.")
+	case last.StagedState == state.StagedDiscarded:
+		b.WriteString("\n\nL'état préparé par le precheck n'a pas été validé : le prochain run repart du même point.")
+	case last.PrecheckFound:
+		b.WriteString("\n\nLe precheck avait trouvé du travail, peut-être perdu : s'il a avancé son curseur dans `AGS_JOB_STATE_DIR`, le prochain run ne le reverra pas (`AGS_STAGED_STATE_DIR` évite cette perte).")
+	}
+	if last.StderrTail != "" {
+		fence := codeFence(last.StderrTail)
+		fmt.Fprintf(&b, "\n\nFin du stderr :\n\n%s\n%s\n%s", fence, last.StderrTail, fence)
+	}
+	fmt.Fprintf(&b, "\n\nRelancer : `ags run %s`. Détails : `ags show %s`.", key, last.ID)
+	return b.String()
+}
+
+func failureCause(r *state.Run, exit string) string {
+	took := formatTook(problem.Duration(r))
+	switch problem.Cause(r) {
+	case problem.CauseNotStarted:
+		return "la commande n'a pas pu démarrer (" + strings.TrimPrefix(r.Reason, "start: ") + ")"
+	case problem.CauseInterrupted:
+		return "interrompu, le daemon s'est arrêté pendant le run"
+	case problem.CauseTimeout:
+		return "l'agent a dépassé le timeout de sa commande (" + r.Reason + ")"
+	case problem.CauseCommand:
+		return fmt.Sprintf("la commande a échoué (%s après %s)", exit, took)
+	case problem.CauseNoAgent:
+		return fmt.Sprintf("la commande n'a probablement pas lancé l'agent (%s après %s, sans rapport)", exit, took)
+	}
+	return fmt.Sprintf("l'agent a échoué (%s après %s)", exit, took)
+}
+
+func describeExit(r *state.Run) string {
+	switch {
+	case r.ExitCode == nil:
+		return shortReason(r)
+	case *r.ExitCode < 0:
+		return "tué par un signal"
+	}
+	return fmt.Sprintf("exit %d", *r.ExitCode)
+}
+
+func formatTook(d time.Duration) string {
+	if d < time.Minute {
+		return fmt.Sprintf("%d s", int(d.Round(time.Second)/time.Second))
+	}
+	return config.FormatDuration(d)
+}
+
+func codeFence(text string) string {
+	longest, run := 0, 0
+	for _, c := range text {
+		if c == '`' {
+			run++
+			longest = max(longest, run)
+		} else {
+			run = 0
+		}
+	}
+	return strings.Repeat("`", max(3, longest+1))
 }
 
 func (d *Daemon) noReportCondition(p *config.Project, item notify.NavetteItem, job problem.Job, prev state.NavetteItem) (navetteCondition, bool) {
@@ -319,7 +391,7 @@ func (d *Daemon) resolution(key string, prev state.NavetteItem) string {
 	case state.StatusPrecheckError:
 		return "The precheck passes again."
 	case state.StatusFailed:
-		return "The last run did not fail."
+		return "Le dernier run n'a pas échoué."
 	case state.StatusMissed:
 		return "Ran again."
 	}
