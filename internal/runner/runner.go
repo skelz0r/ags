@@ -52,7 +52,7 @@ func NewRun(p *config.Project, j *config.Job, trigger string, scheduledFor, deci
 }
 
 func (rn *Runner) Context(run *state.Run) config.RunContext {
-	rc := config.RunContext{ID: run.ID, Trigger: run.Trigger, ScheduledFor: run.ScheduledFor, LateBy: run.LateBy(), JobStateDir: rn.Store.JobStateDir(run)}
+	rc := config.RunContext{ID: run.ID, Trigger: run.Trigger, ScheduledFor: run.ScheduledFor, LateBy: run.LateBy(), JobStateDir: rn.Store.JobStateDir(run), StagedStateDir: rn.Store.StagedStateDir(run)}
 	if rn.Store.Paths.Isolated {
 		home, _ := filepath.Abs(filepath.Dir(rn.Store.Paths.StateDir))
 		rc.AGSHome = ShellQuote(home)
@@ -75,6 +75,9 @@ func (rn *Runner) Execute(ctx context.Context, req Request) *state.Run {
 	rc := rn.Context(run)
 	if err := os.MkdirAll(rc.JobStateDir, 0o700); err != nil {
 		return rn.fail(run, "job state directory: "+err.Error())
+	}
+	if err := os.MkdirAll(rc.StagedStateDir, 0o700); err != nil {
+		return rn.fail(run, "staged state directory: "+err.Error())
 	}
 	if j.Precheck != "" && !req.SkipPrecheck {
 		output, ok := rn.precheck(ctx, p, j, run, rc)
@@ -233,10 +236,41 @@ func (rn *Runner) fail(run *state.Run, reason string) *state.Run {
 }
 
 func (rn *Runner) finish(run *state.Run) *state.Run {
+	rn.settleStagedState(run)
 	now := rn.Now()
 	run.EndedAt = &now
 	entry, _ := rn.Store.Record(run)
 	return entry
+}
+
+func (rn *Runner) settleStagedState(run *state.Run) {
+	staged := rn.Store.StagedStateDir(run)
+	entries, err := os.ReadDir(staged)
+	if err != nil {
+		return
+	}
+	if len(entries) == 0 {
+		os.Remove(staged)
+		return
+	}
+	if run.Status != state.StatusSucceeded && run.Status != state.StatusSkipped {
+		run.StagedState = state.StagedDiscarded
+		return
+	}
+	jobDir := rn.Store.JobStateDir(run)
+	for _, e := range entries {
+		target := filepath.Join(jobDir, e.Name())
+		if e.IsDir() {
+			os.RemoveAll(target)
+		}
+		if err := os.Rename(filepath.Join(staged, e.Name()), target); err != nil {
+			run.StagedState = state.StagedDiscarded
+			run.Reason = "staged state not promoted: " + err.Error()
+			return
+		}
+	}
+	os.Remove(staged)
+	run.StagedState = state.StagedPromoted
 }
 
 func (rn *Runner) notify(event string, run *state.Run, message string) {

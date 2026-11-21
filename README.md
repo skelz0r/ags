@@ -253,7 +253,10 @@ precheck.
 
 A precheck that must remember more than a date (ids already reported,
 a cursor of its own) keeps it in `$AGS_JOB_STATE_DIR`, a directory ags
-keeps for the job across its runs.
+keeps for the job across its runs. It reads it there and writes the new
+version to `$AGS_STAGED_STATE_DIR`: ags moves it into place only once
+the run went through, so a run whose command fails leaves what its
+precheck found to the next run instead of losing it.
 
 ### Catch docs drifting from the code
 

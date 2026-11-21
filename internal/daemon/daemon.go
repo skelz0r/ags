@@ -106,6 +106,9 @@ func (d *Daemon) recoverInterrupted() error {
 		}
 		now := d.opts.Now()
 		r.Status, r.Reason, r.EndedAt = state.StatusFailed, state.ReasonInterrupted, &now
+		if entries, err := os.ReadDir(d.store.StagedStateDir(r)); err == nil && len(entries) > 0 {
+			r.StagedState = state.StagedDiscarded
+		}
 		d.store.SaveRun(r)
 		d.logf("run %s of %s marked failed (interrupted)", r.ID, r.Key())
 	}

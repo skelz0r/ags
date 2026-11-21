@@ -151,8 +151,8 @@ Command fields:
 
 Every command also gets `AGS_PROJECT`, `AGS_PROJECT_PATH`, `AGS_JOB`,
 `AGS_RUN_ID`, `AGS_SCHEDULED_FOR`, `AGS_TRIGGER` (`schedule`,
-`catch_up`, `manual`), `AGS_JOB_STATE_DIR` and `AGS_LAST_SUCCESS_AT`
-in its environment, manual runs included.
+`catch_up`, `manual`), `AGS_JOB_STATE_DIR`, `AGS_STAGED_STATE_DIR` and
+`AGS_LAST_SUCCESS_AT` in its environment, manual runs included.
 
 `AGS_JOB_STATE_DIR` is a directory of the job kept across its runs,
 `jobs/<project>/<job>/` under the state directory, created `0700`
@@ -162,6 +162,31 @@ or removing its project, leaves it in place, so a job put back under
 the same name finds its memory again, and a renamed one starts empty
 unless the directory is moved.
 
+`AGS_STAGED_STATE_DIR` is an empty directory of the run,
+`staged-state/` in its run directory, created `0700` before the
+precheck: where the precheck (or a command, before it exits) writes the next version
+of what it keeps in `AGS_JOB_STATE_DIR`, so that a failed run does not
+lose what its precheck saw. Once the run went through, a skip by its
+precheck or a command that exits 0, ags moves each entry of it into
+`AGS_JOB_STATE_DIR`, replacing the entry of the same name (a rename,
+atomic for a file; a directory replaces the whole directory), and
+removes it. Anything else, a `precheck_error`, a command that fails,
+times out or does not start, an interrupted run, leaves it in the run
+directory, recorded as `staged_state: discarded` (also when a
+restarted daemon closes a run its predecessor left `running`), and the job's
+directory unchanged: the next precheck reads the same state and finds
+the same items. A promotion records `staged_state: promoted`. An empty
+directory records nothing and is removed. Entries cannot be deleted
+this way: a precheck that must forget something writes a file without
+it. A precheck that ignores the variable and writes into
+`AGS_JOB_STATE_DIR` works as before, its writes kept whatever the run
+becomes. A daemon that dies during the command promotes nothing: the
+next run sees the items again, a duplicate rather than a loss. An
+`ags report --status failed|blocked` does not undo a promotion: a
+hand-off command exits 0 once handed off, and holding the state until
+the report would hand the same items to a second agent while the first
+still works on them, the next run may already have promoted on top,
+and the report opens its own item with the agent's summary.
 `AGS_LAST_SUCCESS_AT` is when the last `succeeded` run of the job
 started, RFC 3339 in UTC (`2026-10-19T07:30:10Z`), empty before the
 first one: `git log --since="$AGS_LAST_SUCCESS_AT"` covers the time
@@ -594,7 +619,8 @@ Error codes: `usage`, `invalid_config` (both exit 2), `not_found`,
   and end, the command name and argv, exit code (the precheck's when
   the precheck stopped the run), whether it awaits a report
   (`awaits_report`) and the report (`report`: status, summary, ref,
-  time), the first 64 KiB of stdout and
+  time), what became of its staged state (`staged_state`), the first
+  64 KiB of stdout and
   stderr, and the precheck's stdout and stderr (`precheck.log`, first
   64 KiB). A `precheck_error` is never folded. A hand-off command can
   print an id on stdout to link the run to whatever it handed off to.

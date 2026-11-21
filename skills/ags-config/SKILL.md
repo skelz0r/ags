@@ -92,8 +92,12 @@ Edit the jobs of a project registered with `ags`. The reference is
      failed run then leaves its items to the next one. What the
      precheck must remember beyond that (the ids already reported) goes
      in `$AGS_JOB_STATE_DIR`, a directory kept for the job, never a
-     directory of its own under `~`; recorded by the precheck, it
-     counts items as handled even when the command then fails.
+     directory of its own under `~`. The precheck reads it there but
+     writes the new version to `$AGS_STAGED_STATE_DIR`: ags moves it
+     into `$AGS_JOB_STATE_DIR` only once the run went through (command
+     exit 0, or the precheck skipped), so a failed run leaves its items
+     to the next one. Written straight into `$AGS_JOB_STATE_DIR`, they
+     count as handled even when the command then fails.
 7. Validate until it passes: `ags validate <path> --json`. Errors carry
    `file` and `line`. Fix and rerun.
 8. Show `ags next <project>/<job>` and, for a shared job, remind the

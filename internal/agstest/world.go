@@ -48,6 +48,8 @@ commands:
     timeout: 1s
   failing:
     argv: ["sh", "-c", "echo broken >&2; exit 3"]
+  dispatch:
+    argv: ["sh", "-c", "cat > /dev/null; if [ -e fail ]; then echo 'dispatch: enqueue' >&2; echo 'unreadable tab 1 of herdr workspace wW' >&2; exit 1; fi; echo handed-off"]
   prompt-arg:
     argv: ["sh", "-c", "printf '%s' \"$1\"", "sh", "{prompt}"]
     prompt_arg: true

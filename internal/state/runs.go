@@ -42,6 +42,10 @@ const (
 	TriggerCatchUp  = "catch_up"
 	TriggerManual   = "manual"
 
+	StagedStateDirName = "staged-state"
+	StagedPromoted     = "promoted"
+	StagedDiscarded    = "discarded"
+
 	OutputLimit      = 64 * 1024
 	KeepPerJob       = 100
 	previousLookBack = 10
@@ -70,6 +74,7 @@ type Run struct {
 	OwnerPID      int        `json:"owner_pid,omitempty"`
 	AwaitsReport  bool       `json:"awaits_report,omitempty"`
 	Report        *Report    `json:"report,omitempty"`
+	StagedState   string     `json:"staged_state,omitempty"`
 }
 
 type Report struct {
@@ -149,6 +154,10 @@ func NewRunID(now time.Time) string {
 
 func (s *Store) RunDir(r *Run) string {
 	return filepath.Join(s.Paths.RunsDir(), r.Project, r.Job, r.ID)
+}
+
+func (s *Store) StagedStateDir(r *Run) string {
+	return filepath.Join(s.RunDir(r), StagedStateDirName)
 }
 
 func (s *Store) JobStateDir(r *Run) string {
