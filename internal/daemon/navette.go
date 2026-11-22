@@ -288,11 +288,7 @@ func failedDescription(key string, last *state.Run, since string, count int, tru
 	what, todo := failureCause(key, last)
 	fmt.Fprintf(&b, "\n\n**Ce qui a planté** : %s.", what)
 	if line := lastLine(last.StderrTail); line != "" {
-		fence := codeFence(line)
-		if len(fence) == 3 {
-			fence = "`"
-		}
-		fmt.Fprintf(&b, " Erreur : %s%s%s", fence, line, fence)
+		fmt.Fprintf(&b, " Erreur : %s", inlineCode(line))
 	} else {
 		fmt.Fprintf(&b, " Rien sur stderr : la sortie est dans `ags show %s`.", last.ID)
 	}
@@ -359,7 +355,19 @@ func formatTook(d time.Duration) string {
 	return config.FormatDuration(d)
 }
 
+func inlineCode(text string) string {
+	fence := strings.Repeat("`", longestBackticks(text)+1)
+	if strings.Contains(text, "`") {
+		return fence + " " + text + " " + fence
+	}
+	return fence + text + fence
+}
+
 func codeFence(text string) string {
+	return strings.Repeat("`", max(3, longestBackticks(text)+1))
+}
+
+func longestBackticks(text string) int {
 	longest, run := 0, 0
 	for _, c := range text {
 		if c == '`' {
@@ -369,7 +377,7 @@ func codeFence(text string) string {
 			run = 0
 		}
 	}
-	return strings.Repeat("`", max(3, longest+1))
+	return longest
 }
 
 func (d *Daemon) noReportCondition(p *config.Project, item notify.NavetteItem, job problem.Job, prev state.NavetteItem) (navetteCondition, bool) {
