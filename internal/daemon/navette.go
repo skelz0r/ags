@@ -276,16 +276,27 @@ func seriesCondition(p *config.Project, item notify.NavetteItem, pb problem.Prob
 }
 
 func failedDescription(key string, last *state.Run, since string, count int, truncated bool) string {
-	runs := fmt.Sprintf("%d runs", count)
+	var b strings.Builder
 	switch {
 	case truncated:
-		runs = fmt.Sprintf("%d+ runs", count)
+		fmt.Fprintf(&b, "Le job échoue à chaque run depuis %s (plus de %d runs de suite).", since, count)
 	case count == 1:
-		runs = "1 run"
+		fmt.Fprintf(&b, "Le job a échoué le %s et aucun run n'est passé depuis.", since)
+	default:
+		fmt.Fprintf(&b, "Le job a échoué %d fois de suite depuis %s.", count, since)
 	}
-	exit := describeExit(last)
-	var b strings.Builder
-	fmt.Fprintf(&b, "En échec depuis %s (%s). Dernier run : %s.", since, runs, failureCause(last, exit))
+	what, todo := failureCause(key, last)
+	fmt.Fprintf(&b, "\n\n**Ce qui a planté** : %s.", what)
+	if line := lastLine(last.StderrTail); line != "" {
+		fence := codeFence(line)
+		if len(fence) == 3 {
+			fence = "`"
+		}
+		fmt.Fprintf(&b, " Erreur : %s%s%s", fence, line, fence)
+	} else {
+		fmt.Fprintf(&b, " Rien sur stderr : la sortie est dans `ags show %s`.", last.ID)
+	}
+	fmt.Fprintf(&b, "\n\n**À faire** : %s", todo)
 	switch {
 	case last.StagedState == state.StagedDiscarded && last.PrecheckFound:
 		b.WriteString("\n\nLe precheck avait trouvé du travail : son état n'a pas été validé, le prochain run le retrouvera.")
@@ -298,25 +309,37 @@ func failedDescription(key string, last *state.Run, since string, count int, tru
 		fence := codeFence(last.StderrTail)
 		fmt.Fprintf(&b, "\n\nFin du stderr :\n\n%s\n%s\n%s", fence, last.StderrTail, fence)
 	}
-	fmt.Fprintf(&b, "\n\nRelancer : `ags run %s`. Détails : `ags show %s`.", key, last.ID)
+	fmt.Fprintf(&b, "\n\nDétails : `ags show %s`. Cet item se ferme tout seul dès qu'un run réussit ou qu'un precheck passe sans rien à faire.", last.ID)
 	return b.String()
 }
 
-func failureCause(r *state.Run, exit string) string {
-	took := formatTook(problem.Duration(r))
+func failureCause(key string, r *state.Run) (what, todo string) {
+	took, exit, command := formatTook(problem.Duration(r)), describeExit(r), "`"+r.Command+"`"
+	rerun := "relance avec `ags run " + key + "` pour vérifier."
 	switch problem.Cause(r) {
 	case problem.CauseNotStarted:
-		return "la commande n'a pas pu démarrer (" + strings.TrimPrefix(r.Reason, "start: ") + ")"
+		return "la commande " + command + " n'a pas pu démarrer (" + strings.TrimPrefix(r.Reason, "start: ") + ")",
+			"corrige la commande " + command + " dans la config machine (`ags doctor` vérifie que son programme est trouvé), puis " + rerun
 	case problem.CauseInterrupted:
-		return "interrompu, le daemon s'est arrêté pendant le run"
+		return "le daemon s'est arrêté pendant le run (redémarrage, mise à jour d'ags, Mac éteint)",
+			"rien si ces arrêts étaient voulus, le prochain run repartira normalement. Sinon, regarde pourquoi le daemon s'arrête dans `daemon.log`."
 	case problem.CauseTimeout:
-		return "l'agent a dépassé le timeout de sa commande (" + r.Reason + ")"
+		return "l'agent a dépassé le timeout de la commande " + command + " (" + r.Reason + ")",
+			"regarde où il s'est arrêté, puis allonge le `timeout` de la commande ou découpe le job."
 	case problem.CauseCommand:
-		return fmt.Sprintf("la commande a échoué (%s après %s)", exit, took)
+		return fmt.Sprintf("la commande %s a échoué (%s après %s)", command, exit, took),
+			"corrige la cause de l'erreur, puis " + rerun
 	case problem.CauseNoAgent:
-		return fmt.Sprintf("la commande n'a probablement pas lancé l'agent (%s après %s, sans rapport)", exit, took)
+		return fmt.Sprintf("la commande %s s'est arrêtée au bout de %s (%s) sans lancer l'agent", command, took, exit),
+			"l'agent n'a jamais démarré, relancer ne suffira pas : corrige la commande " + command + " ou le script qu'elle appelle, puis " + rerun
 	}
-	return fmt.Sprintf("l'agent a échoué (%s après %s)", exit, took)
+	return fmt.Sprintf("l'agent a échoué (%s après %s)", exit, took),
+		"lis sa sortie, corrige ce qui l'a bloqué, puis " + rerun
+}
+
+func lastLine(text string) string {
+	lines := strings.Split(strings.TrimSpace(text), "\n")
+	return strings.TrimSpace(lines[len(lines)-1])
 }
 
 func describeExit(r *state.Run) string {
@@ -391,11 +414,34 @@ func (d *Daemon) resolution(key string, prev state.NavetteItem) string {
 	case state.StatusPrecheckError:
 		return "The precheck passes again."
 	case state.StatusFailed:
-		return "Le dernier run n'a pas échoué."
+		return d.failureResolution(key, j)
 	case state.StatusMissed:
 		return "Ran again."
 	}
 	return "Resolved."
+}
+
+func (d *Daemon) failureResolution(key string, j *config.Job) string {
+	project := strings.TrimSuffix(strings.TrimPrefix(key, "ags:"), ":"+j.Name)
+	var loc *time.Location
+	if lp := d.projects[project]; lp != nil && lp.project != nil {
+		loc = lp.project.Location
+	}
+	for _, r := range problem.Of(d.store, d.machine, d.store.RecentRuns(project, j.Name, navetteLookBack), time.Now()).Runs() {
+		at := r.HappenedAt()
+		if loc != nil {
+			at = at.In(loc)
+		}
+		switch {
+		case r.Status == state.StatusSucceeded:
+			return "Le job est revenu à la normale : le run du " + at.Format(timeLayout) + " a réussi."
+		case problem.NothingToDo(r):
+			return "Le job est revenu à la normale : le precheck du " + at.Format(timeLayout) + " est passé sans rien à faire."
+		case r.Status == state.StatusFailed:
+			return "Un seul échec, sans suite : ags ne remonte un job qu'après plusieurs échecs de suite."
+		}
+	}
+	return "Le job n'est plus en échec."
 }
 
 func (d *Daemon) configuredJob(key string) *config.Job {

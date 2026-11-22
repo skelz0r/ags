@@ -8,6 +8,7 @@ import (
 	"time"
 
 	. "github.com/skelz0r/ags/internal/agstest"
+	"github.com/skelz0r/ags/internal/daemon"
 )
 
 const brokenPrecheck = `version: 1
@@ -370,21 +371,49 @@ jobs:
 	}
 }
 
-func TestTheInboxItemOfAFailedRunSaysWhatFailedWhatWasKeptAndHowToRelaunch(t *testing.T) {
+func failTwice(w *World, d *daemon.Daemon) {
+	w.Write(filepath.Join(w.ProjectDir, "fail"), "")
+	w.TickEvery(d, At(19, 8, 59, 30), At(19, 9, 0, 30), 30*time.Second)
+	w.TickEvery(d, At(19, 9, 59, 30), At(19, 10, 1, 0), 30*time.Second)
+}
+
+func TestAnIsolatedFailureFollowedByAPrecheckWithNothingToDoNeverReachesTheInbox(t *testing.T) {
 	w := alertWorld(t)
 	w.EnableNavette()
 	w.Register()
 	d := w.Daemon()
 	w.Write(filepath.Join(w.ProjectDir, "fail"), "")
 	w.TickEvery(d, At(19, 8, 59, 30), At(19, 9, 0, 30), 30*time.Second)
+	w.Write(filepath.Join(w.ProjectDir, "alerts"), "")
+	w.TickEvery(d, At(19, 9, 59, 30), At(19, 13, 0, 30), 30*time.Second)
+	w.TickEvery(d, At(21, 9, 0, 0), At(21, 9, 0, 30), 30*time.Second)
+
+	if posts := w.NavettePostsFor("ags:proj:watch"); len(posts) != 0 {
+		t.Fatalf("one failure then prechecks with nothing to do: the job is back to normal, nothing to post, got %+v", posts)
+	}
+}
+
+func TestAJobFailingSeveralTimesInARowReachesTheInboxWithTheRealErrorAndWhatToDo(t *testing.T) {
+	w := alertWorld(t)
+	w.EnableNavette()
+	w.Register()
+	d := w.Daemon()
+	w.Write(filepath.Join(w.ProjectDir, "fail"), "")
+	w.TickEvery(d, At(19, 8, 59, 30), At(19, 9, 0, 30), 30*time.Second)
+	if posts := w.NavettePostsFor("ags:proj:watch"); len(posts) != 0 {
+		t.Fatalf("a single failure waits for the next run before reaching the inbox, got %+v", posts)
+	}
+	w.TickEvery(d, At(19, 9, 59, 30), At(19, 10, 1, 0), 30*time.Second)
 
 	post := onlyPost(t, w.NavettePostsFor("ags:proj:watch"), "waiting")
 	desc := post.Flags["--description"]
 	for _, want := range []string{
-		"la commande n'a probablement pas lancé l'agent (exit 1 après 0 s, sans rapport)",
+		"Le job a échoué 2 fois de suite depuis Mon 19 Oct 09:00.",
+		"**Ce qui a planté** : la commande `dispatch` s'est arrêtée au bout de 0 s (exit 1) sans lancer l'agent. Erreur : `unreadable tab 1 of herdr workspace wW`",
+		"**À faire** : l'agent n'a jamais démarré, relancer ne suffira pas : corrige la commande `dispatch` ou le script qu'elle appelle, puis relance avec `ags run proj/watch` pour vérifier.",
 		"Le precheck avait trouvé du travail : son état n'a pas été validé, le prochain run le retrouvera.",
 		"Fin du stderr :\n\n```\ndispatch: enqueue\nunreadable tab 1 of herdr workspace wW\n```",
-		"Relancer : `ags run proj/watch`.",
+		"Cet item se ferme tout seul dès qu'un run réussit ou qu'un precheck passe sans rien à faire.",
 	} {
 		if !strings.Contains(desc, want) {
 			t.Fatalf("expected the description to contain %q, got %q", want, desc)
@@ -392,6 +421,43 @@ func TestTheInboxItemOfAFailedRunSaysWhatFailedWhatWasKeptAndHowToRelaunch(t *te
 	}
 	if post.Flags["--title"] != "proj/watch en échec" {
 		t.Fatalf("expected the item titled after the job, got %q", post.Flags["--title"])
+	}
+}
+
+func TestAFailureItemClosesOnceAPrecheckFindsNothingToDo(t *testing.T) {
+	w := alertWorld(t)
+	w.EnableNavette()
+	w.Register()
+	d := w.Daemon()
+	failTwice(w, d)
+	w.Write(filepath.Join(w.ProjectDir, "alerts"), "")
+	w.TickEvery(d, At(19, 10, 59, 30), At(19, 13, 0, 30), 30*time.Second)
+
+	posts := w.NavettePostsFor("ags:proj:watch")
+	last := posts[len(posts)-1]
+	if len(posts) != 2 || last.Flags["--status"] != "done" ||
+		last.Flags["--description"] != "Le job est revenu à la normale : le precheck du Mon 19 Oct 11:00 est passé sans rien à faire." {
+		t.Fatalf("expected the item closed once the precheck has nothing to do, got %+v", posts)
+	}
+}
+
+func TestARareJobFailingOnceReachesTheInboxWhenNoRunGoesThroughWithinADay(t *testing.T) {
+	w := alertWorld(t)
+	w.SharedFile(strings.Replace(alertWatch, "0 * * * *", "0 9 * * 1", 1))
+	w.EnableNavette()
+	w.Register()
+	d := w.Daemon()
+	w.Write(filepath.Join(w.ProjectDir, "fail"), "")
+	w.TickEvery(d, At(19, 8, 59, 30), At(19, 9, 0, 30), 30*time.Second)
+	w.TickEvery(d, At(20, 10, 0, 0), At(20, 10, 3, 0), 30*time.Second)
+	if posts := w.NavettePostsFor("ags:proj:watch"); len(posts) != 0 {
+		t.Fatalf("a weekly job failing once is not reported within the first day, got %+v", posts)
+	}
+	w.TickEvery(d, At(20, 11, 1, 0), At(20, 11, 3, 0), 30*time.Second)
+
+	post := onlyPost(t, w.NavettePostsFor("ags:proj:watch"), "waiting")
+	if !strings.Contains(post.Flags["--description"], "Le job a échoué le Mon 19 Oct 09:00 et aucun run n'est passé depuis.") {
+		t.Fatalf("expected the isolated failure reported past 26 hours, got %q", post.Flags["--description"])
 	}
 }
 
@@ -403,8 +469,7 @@ func TestAFrenchInboxItemReachesNavetteUnderAUTF8LocaleWhenTheDaemonHasNone(t *t
 	w.EnableNavette()
 	w.Register()
 	d := w.Daemon()
-	w.Write(filepath.Join(w.ProjectDir, "fail"), "")
-	w.TickEvery(d, At(19, 8, 59, 30), At(19, 9, 0, 30), 30*time.Second)
+	failTwice(w, d)
 
 	post := onlyPost(t, w.NavettePostsFor("ags:proj:watch"), "waiting")
 	if !strings.Contains(strings.ToUpper(post.Locale), "UTF-8") {

@@ -460,7 +460,16 @@ usage.
   - `config`: an invalid machine or project file, with file and line;
   - `precheck_error`: the job's latest precheck crashed, within 7 days,
     with the start of the series and its count (as `ags doctor`);
-  - `failed`: the job's latest ended command failed, within 7 days;
+  - `failed`: the job's latest ended command failed, within 7 days,
+    and the failure is confirmed: at least 2 failed commands in a row,
+    or an isolated one that no run went through for 26 hours after (a
+    daily or weekly job would otherwise wait a day or a week for its
+    second failure). A precheck that passes with nothing to do ends the
+    series like a run that succeeds; other skips (overlap, paused,
+    unapproved) and `precheck_error` neither count nor end it. An
+    isolated failure followed by a run that goes through never shows.
+    Only `failed` waits for a confirmation: `precheck_error`,
+    `blocked`, `agent_failed` show at once;
   - `blocked`, `agent_failed`: the job's latest settled run, within 7
     days, reported `blocked` or `failed`, with its ref. A run settles
     when it has a report, or succeeded without awaiting one: a later
@@ -663,21 +672,30 @@ Error codes: `usage`, `invalid_config` (both exit 2), `not_found`,
     id for `ags show`; a new streak posts at once, a growing count at
     most once an hour. A streak longer than the 30 entries keeps the
     start recorded when its item opened.
-  - A `failed` item, written in French, says what the last run's
-    failure most likely was: the command could not start; it was
-    interrupted; it timed out; a command that is not an agent
-    (`report_within: never`) failed; the command exited non-zero
-    within a minute of starting without any report, so it most likely
-    never launched the agent (a dispatcher that could not hand off);
-    otherwise the agent failed, with the exit code and how long the
-    command ran. Then, when the precheck had found something, whether
-    it is kept (`staged_state: discarded`: the next run finds it again)
-    or may be lost (written straight into `AGS_JOB_STATE_DIR`); the
-    `stderr_tail` in a code block; and `ags run <project/job>` to
-    relaunch it.
+  - A `failed` item opens only once the failure is confirmed, as in
+    `ags attention`. Written in French, it says how many runs failed in
+    a row and since when; what broke, by the last run's most likely
+    cause (the command could not start; it was interrupted; it timed
+    out; a command that is not an agent, `report_within: never`,
+    failed; the command exited non-zero within a minute of starting
+    without any report, so it never launched the agent, a dispatcher
+    that could not hand off; otherwise the agent failed), naming the
+    command, the exit code and how long it ran, followed by the last
+    line of `stderr_tail` as the error, or a pointer to `ags show` when
+    stderr is empty; what to do for that cause (fix the command or the
+    script it calls when the agent never started, a relaunch alone
+    would fail the same way; nothing when the daemon was stopped on
+    purpose; a longer `timeout` after a timeout); when the precheck
+    had found something, whether it is kept (`staged_state:
+    discarded`: the next run finds it again) or may be lost (written
+    straight into `AGS_JOB_STATE_DIR`); the whole `stderr_tail` in a
+    code block; and that the item closes by itself.
   - Once the problem is gone (precheck passes, run succeeds, approved,
     reported, config fixed, job paused or removed) the item is posted
-    `done`.
+    `done`. A `failed` item closes as soon as a run succeeds or a
+    precheck passes with nothing to do, and says which and when; one
+    opened under an older rule for a single failure closes saying ags
+    now waits for several failures in a row.
   - Never `--option` nor `--notify`: the click would come back to a
     pane, and the daemon has none; `CLAUDE_CODE_BRIDGE_SESSION_ID` and
     `HERDR_PANE_ID` are removed from its environment. `navette` runs

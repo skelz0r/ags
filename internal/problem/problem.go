@@ -18,6 +18,9 @@ const (
 	Missed        = state.StatusMissed
 
 	Window = state.UnreportedLookBack
+
+	FailedAfter = 2
+	FailedGrace = 26 * time.Hour
 )
 
 type Problem struct {
@@ -68,12 +71,22 @@ func (j Job) precheck() (Problem, bool) {
 }
 
 func (j Job) failed() (Problem, bool) {
-	series, toEnd := j.series(state.StatusFailed, func(r *state.Run) bool { return !r.CommandStarted() || r.Status == state.StatusRunning })
-	if len(series) == 0 {
+	series, toEnd := j.series(state.StatusFailed, func(r *state.Run) bool {
+		return (!r.CommandStarted() && !NothingToDo(r)) || r.Status == state.StatusRunning
+	})
+	if len(series) == 0 || !confirmed(series, j.now) {
 		return Problem{}, false
 	}
 	return Problem{Kind: Failed, Runs: series, Count: len(series), ToEnd: toEnd,
 		Since: startedAt(series[len(series)-1]), Last: endedAt(series[0])}, true
+}
+
+func NothingToDo(r *state.Run) bool {
+	return r.Status == state.StatusSkipped && strings.HasPrefix(r.Reason, state.ReasonPrecheck)
+}
+
+func confirmed(series []*state.Run, now time.Time) bool {
+	return len(series) >= FailedAfter || !now.Before(endedAt(series[0]).Add(FailedGrace))
 }
 
 func (j Job) report() (Problem, bool) {

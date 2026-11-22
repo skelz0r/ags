@@ -36,6 +36,7 @@ func TestAFailingJobStaysAFailureInTheInboxWhenLaterOccurrencesAreMissed(t *test
 	w.Register()
 	d := w.Daemon()
 	w.TickEvery(d, At(19, 8, 59, 30), At(19, 9, 0, 30), 30*time.Second)
+	w.TickEvery(d, At(20, 8, 59, 30), At(20, 9, 1, 0), 30*time.Second)
 	onlyPost(t, w.NavettePostsFor("ags:proj:daily"), "waiting")
 
 	w.TickEvery(d, At(22, 9, 30, 0), At(22, 9, 31, 0), 30*time.Second)
