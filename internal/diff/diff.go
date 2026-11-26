@@ -44,3 +44,17 @@ func split(s string) []string {
 	}
 	return strings.Split(s, "\n")
 }
+
+func Style(lines string, added, removed func(string) string) []string {
+	var out []string
+	for _, l := range strings.Split(strings.TrimRight(lines, "\n"), "\n") {
+		switch {
+		case strings.HasPrefix(l, "+ "):
+			l = added(l)
+		case strings.HasPrefix(l, "- "):
+			l = removed(l)
+		}
+		out = append(out, l)
+	}
+	return out
+}
