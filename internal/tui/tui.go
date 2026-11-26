@@ -12,6 +12,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/skelz0r/ags/internal/cli"
+	"github.com/skelz0r/ags/internal/diff"
 	"github.com/skelz0r/ags/internal/paths"
 )
 
@@ -484,15 +485,7 @@ func (m *model) body() string {
 				head += " (never approved)"
 			}
 			lines = append(lines, titleStyle.Render(head))
-			for _, l := range strings.Split(strings.TrimRight(p.Diff, "\n"), "\n") {
-				switch {
-				case strings.HasPrefix(l, "+ "):
-					l = okStyle.Render(l)
-				case strings.HasPrefix(l, "- "):
-					l = errorStyle.Render(l)
-				}
-				lines = append(lines, l)
-			}
+			lines = append(lines, diff.Style(p.Diff, render(okStyle), render(errorStyle))...)
 		}
 		return m.scrolled(titleStyle.Render("Approve "+m.target)+dimStyle.Render("  y approve all, esc cancel")+"\n", lines)
 	case screenProjects:
@@ -657,4 +650,8 @@ func orDash(s string) string {
 		return "-"
 	}
 	return s
+}
+
+func render(s lipgloss.Style) func(string) string {
+	return func(text string) string { return s.Render(text) }
 }
