@@ -327,7 +327,9 @@ machine without you seeing it.
   its occurrences are recorded `skipped` (`unapproved`), folded into
   one entry, with one notification per change.
 - Approving shows the diff against the last approved version, or the
-  whole job the first time.
+  whole job the first time: added lines in green, removed ones in red,
+  as in the TUI. Colors only on a terminal, without `NO_COLOR`; `--json`
+  keeps the diff plain.
 - `ags add` shows the project's jobs and asks to approve them (`--approve`
   to skip the question). It refuses a project whose files are invalid.
 - A shared job written by `ags new` is approved at once: you wrote it.

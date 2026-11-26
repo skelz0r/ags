@@ -123,6 +123,10 @@ func (a *App) approve(args []string) (result, error) {
 	var pending []*config.Job
 	views := []approvalView{}
 	var b strings.Builder
+	bold, added, removed := plain, plain, plain
+	if a.colorOutput() {
+		bold, added, removed = sgr("1"), sgr("32"), sgr("31")
+	}
 	for _, j := range jobs {
 		if st.Approved(j) {
 			continue
@@ -136,11 +140,15 @@ func (a *App) approve(args []string) (result, error) {
 			v.Diff = diff.Lines("", j.ApprovalText)
 		}
 		views = append(views, v)
-		fmt.Fprintf(&b, "--- %s", j.Key())
+		head := "--- " + j.Key()
 		if v.First {
-			b.WriteString(" (never approved)")
+			head += " (never approved)"
 		}
-		fmt.Fprintf(&b, "\n%s\n", v.Diff)
+		b.WriteString(bold(head) + "\n")
+		for _, l := range diff.Style(v.Diff, added, removed) {
+			b.WriteString(l + "\n")
+		}
+		b.WriteString("\n")
 	}
 	if len(pending) == 0 {
 		return result{data: map[string]any{"approved": []string{}, "pending": views}, text: "nothing to approve"}, nil
@@ -285,4 +293,10 @@ func (a *App) deleteJob(args []string) (result, error) {
 		return result{}, err
 	}
 	return result{data: map[string]any{"deleted": t.job.Key(), "file": t.job.File}, text: "deleted " + t.job.Key() + " from " + t.job.File}, nil
+}
+
+func plain(s string) string { return s }
+
+func sgr(code string) func(string) string {
+	return func(s string) string { return "\x1b[" + code + "m" + s + "\x1b[0m" }
 }

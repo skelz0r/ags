@@ -289,7 +289,7 @@ func (a *App) feedWriter() func(FeedEntry) error {
 		return func(e FeedEntry) error { return enc.Encode(envelope{OK: true, Data: e}) }
 	}
 	fd, terminal := a.Stdout.(interface{ Fd() uintptr })
-	color := terminal && isCharDevice(fd) && a.Getenv("NO_COLOR") == ""
+	color := a.colorOutput()
 	return func(e FeedEntry) error {
 		width := 0
 		if terminal {
@@ -298,6 +298,11 @@ func (a *App) feedWriter() func(FeedEntry) error {
 		_, err := fmt.Fprint(a.Stdout, FeedLine(e, width, color))
 		return err
 	}
+}
+
+func (a *App) colorOutput() bool {
+	fd, terminal := a.Stdout.(interface{ Fd() uintptr })
+	return !a.json && terminal && isCharDevice(fd) && a.Getenv("NO_COLOR") == ""
 }
 
 func isCharDevice(fd interface{ Fd() uintptr }) bool {
