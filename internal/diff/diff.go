@@ -26,7 +26,7 @@ func Lines(before, after string) string {
 			out.WriteString("  " + a[i] + "\n")
 			i++
 			j++
-		case j < len(b) && (i == len(a) || lcs[i][j+1] >= lcs[i+1][j]):
+		case j < len(b) && (i == len(a) || lcs[i][j+1] > lcs[i+1][j]):
 			out.WriteString("+ " + b[j] + "\n")
 			j++
 		default:
