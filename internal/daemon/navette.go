@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/skelz0r/ags/internal/config"
+	"github.com/skelz0r/ags/internal/diff"
 	"github.com/skelz0r/ags/internal/notify"
 	"github.com/skelz0r/ags/internal/problem"
 	"github.com/skelz0r/ags/internal/state"
@@ -24,6 +25,8 @@ const (
 	eventUnapproved    = "unapproved"
 	eventNoReport      = problem.NoReport
 	timeLayout         = "Mon 02 Jan 15:04"
+	approvalContext    = 3
+	approvalDiffMax    = 20000
 )
 
 type NavettePoster interface {
@@ -210,7 +213,7 @@ func (d *Daemon) jobCondition(st *state.State, p *config.Project, j *config.Job,
 			return navetteCondition{}, false
 		}
 		item.Title, item.Status = key+" needs approval", navetteWaiting
-		item.Description = "Its prompt, precheck or command changed since you approved it, it does not run meanwhile: `ags approve " + key + "` shows the diff."
+		item.Description = approvalDescription(st, j)
 		return navetteCondition{event: eventUnapproved, item: item, sig: eventUnapproved + ":" + j.Fingerprint}, true
 	}
 	prev, posted := st.Navette[item.Key]
@@ -241,6 +244,31 @@ func (d *Daemon) jobCondition(st *state.State, p *config.Project, j *config.Job,
 		return seriesCondition(p, item, pb, pb.ToEnd && full, prev, sameEvent), true
 	}
 	return navetteCondition{}, false
+}
+
+func approvalDescription(st *state.State, j *config.Job) string {
+	var b strings.Builder
+	approve := "`ags approve " + j.Key() + "`"
+	previous, seen := st.Approvals[j.Key()]
+	if seen {
+		b.WriteString("Its prompt, precheck or command changed since you approved it, it does not run meanwhile: " + approve + " shows the diff and approves it.")
+	} else {
+		b.WriteString("Never approved, it does not run meanwhile: " + approve + " shows the diff and approves it.")
+	}
+	hunks := diff.Hunks(previous.Text, j.ApprovalText, approvalContext)
+	if hunks == "" {
+		return b.String()
+	}
+	truncated := len(hunks) > approvalDiffMax
+	if truncated {
+		hunks = hunks[:strings.LastIndex(hunks[:approvalDiffMax], "\n")+1]
+	}
+	fence := codeFence(hunks)
+	fmt.Fprintf(&b, "\n\n%sdiff\n%s%s", fence, hunks, fence)
+	if truncated {
+		b.WriteString("\n\nDiff truncated: " + approve + " shows all of it.")
+	}
+	return b.String()
 }
 
 func seriesCondition(p *config.Project, item notify.NavetteItem, pb problem.Problem, truncated bool, prev state.NavetteItem, sameEvent bool) navetteCondition {

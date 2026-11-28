@@ -87,12 +87,26 @@ func TestAJobWaitingForApprovalIsAnInboxItemClosedByTheApproval(t *testing.T) {
 	if !strings.Contains(post.Flags["--description"], "`ags approve proj/check`") {
 		t.Fatalf("expected the item to say how to approve, got %q", post.Flags["--description"])
 	}
+	if desc := post.Flags["--description"]; !strings.Contains(desc, "```diff\n@@ -1,0 +1,") || !strings.Contains(desc, "\n+   Check.\n") {
+		t.Fatalf("a job never approved shows all it would run as added lines, got %q", desc)
+	}
 
 	w.MustCLI("approve", "proj/check", "--yes")
 	w.TickEvery(d, At(19, 10, 2, 30), At(19, 10, 3, 0), 30*time.Second)
 	posts := w.NavettePostsFor("ags:proj:check")
 	if len(posts) != 2 || posts[1].Flags["--status"] != "done" || posts[1].Flags["--description"] != "Approved." {
 		t.Fatalf("expected the approval to close the item, got %+v", posts)
+	}
+
+	w.SharedFile(checkJob("* * * * *", "Check twice.", "true"))
+	w.TickEvery(d, At(19, 10, 3, 30), At(19, 10, 4, 0), 30*time.Second)
+	changed := onlyPost(t, w.NavettePostsFor("ags:proj:check")[2:], "waiting")
+	desc := changed.Flags["--description"]
+	if !strings.Contains(desc, "\n-   Check.\n+   Check twice.\n") || strings.Contains(desc, "Never approved") {
+		t.Fatalf("a changed job shows what changed since the approval, got %q", desc)
+	}
+	if strings.Contains(desc, "  command: ") {
+		t.Fatalf("lines far from the change stay out of the item, got %q", desc)
 	}
 }
 

@@ -692,6 +692,14 @@ Error codes: `usage`, `invalid_config` (both exit 2), `not_found`,
     discarded`: the next run finds it again) or may be lost (written
     straight into `AGS_JOB_STATE_DIR`); the whole `stderr_tail` in a
     code block; and that the item closes by itself.
+  - An `unapproved` item says whether the job was ever approved and
+    that `ags approve <project>/<job>` shows the diff and approves it,
+    followed by that diff in a `diff` code block, which navette folds
+    and colours: the lines changed since the last approval with three
+    lines of context, in hunks headed `@@ -a,b +c,d @@`, the whole job
+    as added lines the first time. The fence is longer than any
+    backtick run of the diff; past 20,000 characters the diff is cut at
+    a line boundary and a note points to `ags approve` for the rest.
   - Once the problem is gone (precheck passes, run succeeds, approved,
     reported, config fixed, job paused or removed) the item is posted
     `done`. A `failed` item closes as soon as a run succeeds or a
